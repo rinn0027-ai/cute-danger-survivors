@@ -3,6 +3,7 @@ extends Control
 var direction := Vector2.ZERO
 var active := true
 var touching := false
+var right_side := false  # true = 右半屏捕获，false = 左半屏
 
 var _touch_index := -1
 var _base_pos := Vector2.ZERO
@@ -34,11 +35,11 @@ func _make_circle_panel(diameter: int, color: Color) -> Panel:
 
 func _input(event: InputEvent) -> void:
 	if not active:
-		_reset()
 		return
 	var vp_size: Vector2 = get_viewport_rect().size
 	if event is InputEventScreenTouch:
-		if event.pressed and _touch_index == -1 and event.position.x < vp_size.x * 0.5:
+		var on_correct_side: bool = (event.position.x >= vp_size.x * 0.5) == right_side
+		if event.pressed and _touch_index == -1 and on_correct_side:
 			_touch_index = event.index
 			touching = true
 			_base_pos = event.position

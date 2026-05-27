@@ -6,10 +6,15 @@ const GemScene := preload("res://scripts/xp_gem.gd")
 const BulletScene := preload("res://scripts/bullet.gd")
 const ItemPickupScene := preload("res://scripts/item_pickup.gd")
 const JoystickScene := preload("res://scripts/virtual_joystick.gd")
+const MusicPlayer := preload("res://scripts/music_player.gd")
+const SfxPlayer   := preload("res://scripts/sfx_player.gd")
 
 var player: CharacterBody2D
 var hud: CanvasLayer
-var joystick: Control
+var joystick_move: Control   # 左半屏：控制移动方向
+var joystick_aim: Control    # 右半屏：控制弹幕方向
+var _sfx: Node               # 音效管理器
+var _is_touch_session := false
 var level_panel: Control
 var doors := {}
 var rng := RandomNumberGenerator.new()
@@ -32,6 +37,57 @@ var visited_rooms := {}
 var cleared_rooms := {}
 var paused_for_upgrade := false
 var game_over := false
+var boss_state := {
+	"patterns": [], "index": 0, "spiral_angle": 0.0,
+	"seed": 0, "archetype_id": 0, "concept_id": 0, "aspect_id": 0
+}
+
+# ── 地下城固定元素池：基础轮廓 + 元素变体 + 行为原型 ─────────────────────────
+# 每个敌人由 family/concept 决定像素轮廓，aspect 决定配色和少量数值。
+var _boss_concepts := [
+	{
+		"key": "lich",
+		"outer": Color("#5c6f91"), "inner": Color("#d8e6ff"),
+		"speed_mult": 0.95,       "hp_mult": 1.35
+	},
+	{
+		"key": "dragon",
+		"outer": Color("#9b2f20"), "inner": Color("#ffb45f"),
+		"speed_mult": 1.2,        "hp_mult": 1.25
+	},
+	{
+		"key": "demon",
+		"outer": Color("#682351"), "inner": Color("#ff6fb0"),
+		"speed_mult": 1.25,       "hp_mult": 1.2
+	},
+	{
+		"key": "minotaur",
+		"outer": Color("#7a4d2a"), "inner": Color("#e1b06d"),
+		"speed_mult": 1.05,       "hp_mult": 1.65
+	},
+	{
+		"key": "watcher",
+		"outer": Color("#3e357f"), "inner": Color("#a995ff"),
+		"speed_mult": 0.85,       "hp_mult": 1.5
+	},
+]
+
+var _enemy_families := [
+	{"key": "skeleton", "min_floor": 1, "scale": 1.25, "mode": "auto", "speed": 66.0, "hp": 2},
+	{"key": "imp", "min_floor": 1, "scale": 1.18, "mode": "erratic", "speed": 108.0, "hp": 1},
+	{"key": "cultist", "min_floor": 2, "scale": 1.34, "mode": "retreat", "speed": 58.0, "hp": 3},
+	{"key": "spider", "min_floor": 2, "scale": 1.42, "mode": "orbit", "speed": 86.0, "hp": 2},
+	{"key": "zombie", "min_floor": 3, "scale": 1.45, "mode": "auto", "speed": 50.0, "hp": 5},
+	{"key": "mimic", "min_floor": 4, "scale": 1.55, "mode": "erratic", "speed": 78.0, "hp": 4},
+]
+
+var _dungeon_aspects := [
+	{"key": "ember", "outer": Color("#a53b21"), "inner": Color("#ffb85f"), "speed_mult": 1.05, "hp_mult": 1.0},
+	{"key": "frost", "outer": Color("#356c91"), "inner": Color("#b8ecff"), "speed_mult": 0.92, "hp_mult": 1.18},
+	{"key": "shadow", "outer": Color("#3f325c"), "inner": Color("#b78cff"), "speed_mult": 1.18, "hp_mult": 0.9},
+	{"key": "venom", "outer": Color("#2f7a45"), "inner": Color("#a9ff72"), "speed_mult": 1.0, "hp_mult": 1.08},
+	{"key": "iron", "outer": Color("#5f6874"), "inner": Color("#d3dae2"), "speed_mult": 0.82, "hp_mult": 1.35},
+]
 var current_upgrade_keys: Array[String] = []
 var room_rect := Rect2(Vector2(64, 64), Vector2(832, 416))
 var stats := {
@@ -63,10 +119,17 @@ var combo_effects := {
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(MusicPlayer.new())
+	_sfx = SfxPlayer.new()
+	add_child(_sfx)
 	rng.randomize()
 	_generate_dungeon()
 	add_child(_make_floor())
 	add_child(_make_room_walls())
+	gems.process_mode = Node.PROCESS_MODE_PAUSABLE
+	enemies.process_mode = Node.PROCESS_MODE_PAUSABLE
+	bullets.process_mode = Node.PROCESS_MODE_PAUSABLE
+	pickups.process_mode = Node.PROCESS_MODE_PAUSABLE
 	add_child(gems)
 	add_child(enemies)
 	add_child(bullets)
@@ -76,6 +139,7 @@ func _ready() -> void:
 		doors[direction] = room_door
 		add_child(room_door)
 	player = PlayerScene.new()
+	player.process_mode = Node.PROCESS_MODE_PAUSABLE
 	player.position = room_rect.get_center()
 	player.died.connect(_on_player_died)
 	add_child(player)
@@ -84,8 +148,12 @@ func _ready() -> void:
 	add_child(hud)
 	var joy_layer := CanvasLayer.new()
 	joy_layer.layer = 10
-	joystick = JoystickScene.new()
-	joy_layer.add_child(joystick)
+	joystick_move = JoystickScene.new()
+	joystick_move.right_side = false
+	joy_layer.add_child(joystick_move)
+	joystick_aim = JoystickScene.new()
+	joystick_aim.right_side = true
+	joy_layer.add_child(joystick_aim)
 	add_child(joy_layer)
 	_load_room()
 
@@ -95,23 +163,37 @@ func _physics_process(delta: float) -> void:
 	game_time += delta
 	shoot_timer -= delta
 	enemy_shoot_timer -= delta
-	player.joystick_direction = joystick.direction
+	if joystick_move.touching or joystick_aim.touching:
+		_is_touch_session = true
+	player.joystick_direction = joystick_move.direction
 	_keep_player_inside_room()
 	_handle_shooting()
 	if enemy_shoot_timer <= 0.0:
 		_fire_enemy_bullets()
-		enemy_shoot_timer = 1.25
+		var shoot_interval := 1.25
+		if dungeon.get(current_room, "normal") == "boss" and enemies.get_child_count() > 0:
+			var boss := enemies.get_child(0)
+			if "max_health" in boss and boss.max_health > 0:
+				var hp_ratio: float = float(boss.health) / float(boss.max_health)
+				if hp_ratio < 0.4:
+					shoot_interval = 0.62  # 狂暴：射击间隔减半
+		enemy_shoot_timer = shoot_interval
 	_update_hud()
 
 func _handle_shooting() -> void:
 	if shoot_timer > 0.0:
 		return
 	var direction: Vector2
-	if joystick != null and joystick.get("touching"):
+	if joystick_aim.direction != Vector2.ZERO:
+		# 右摇杆主动推出：按摇杆方向射击
+		direction = joystick_aim.direction
+	elif _is_touch_session:
+		# 触屏会话但右摇杆未推：自动瞄准最近敌人
 		direction = _nearest_enemy_direction()
 		if direction == Vector2.ZERO:
-			direction = joystick.direction
+			direction = joystick_move.direction  # 无敌人时朝移动方向射
 	else:
+		# 桌面鼠标瞄准
 		direction = player.global_position.direction_to(get_global_mouse_position())
 	if direction == Vector2.ZERO:
 		return
@@ -137,6 +219,7 @@ func _fire_player_bullets(direction: Vector2) -> void:
 	for i in range(count):
 		var bullet := BulletScene.new()
 		bullet.from_player = true
+		bullet.sfx = _sfx
 		bullet.direction = direction.rotated(deg_to_rad(start_angle + spread * i))
 		bullet.speed = stats["shot_speed"]
 		bullet.damage = stats["damage"]
@@ -148,12 +231,12 @@ func _fire_enemy_bullets() -> void:
 	if enemies.get_child_count() == 0:
 		return
 	var room_type: String = dungeon.get(current_room, "normal")
-	for enemy in enemies.get_children():
-		if room_type == "boss":
-			for i in range(8):
-				_spawn_enemy_bullet(enemy.global_position, Vector2.RIGHT.rotated(TAU * float(i) / 8.0), 185.0)
-		elif enemy.global_position.distance_to(player.global_position) < 280.0 and rng.randf() < 0.35:
-			_spawn_enemy_bullet(enemy.global_position, enemy.global_position.direction_to(player.global_position), 160.0)
+	if room_type == "boss":
+		_execute_boss_pattern(enemies.get_child(0).global_position)
+	else:
+		for enemy in enemies.get_children():
+			if enemy.global_position.distance_to(player.global_position) < 280.0 and rng.randf() < 0.35:
+				_spawn_enemy_bullet(enemy.global_position, enemy.global_position.direction_to(player.global_position), 160.0)
 
 func _spawn_enemy_bullet(origin: Vector2, direction: Vector2, bullet_speed: float) -> void:
 	var bullet := BulletScene.new()
@@ -164,6 +247,132 @@ func _spawn_enemy_bullet(origin: Vector2, direction: Vector2, bullet_speed: floa
 	bullet.lifetime = 3.0
 	bullet.global_position = origin + bullet.direction * 20.0
 	bullets.add_child(bullet)
+
+func _generate_boss_patterns(floor: int, archetype: int) -> Array:
+	# 第 1 层：固定 8 方向，还没解锁随机原型
+	if floor == 1:
+		return [{"type": "radial", "count": 8, "speed": 185.0}]
+
+	var spd := 175.0 + floor * 12.0      # 基础子弹速度随层递增
+	var result: Array = []
+
+	match archetype:
+		0:  # 炮台 Artillery：大量覆盖弹幕，环形+追踪组合
+			result.append({"type": "radial",
+				"count": mini(10 + floor * 2, 22), "speed": spd})
+			result.append({"type": "ring_aimed",
+				"ring_count": mini(8 + floor, 18),
+				"aimed_count": mini(3 + floor / 2, 7),
+				"speed": spd * 1.05})
+			if floor >= 3:
+				result.append({"type": "cross",
+					"speed": spd * 0.88, "offset_deg": 22.5})
+
+		1:  # 追击 Chaser：精准散弹为主，配合螺旋
+			result.append({"type": "aimed",
+				"count": mini(3 + floor, 9),
+				"spread_deg": 14.0, "speed": spd * 1.25})
+			result.append({"type": "spiral",
+				"count": mini(4 + floor, 9),
+				"speed": spd * 1.1,
+				"step_deg": maxf(18.0, 42.0 - floor * 3.0)})
+			if floor >= 4:
+				result.append({"type": "aimed",
+					"count": mini(6 + floor, 10),
+					"spread_deg": 7.0, "speed": spd * 1.4})
+
+		2:  # 舞者 Dancer：螺旋为主，十字穿插
+			result.append({"type": "spiral",
+				"count": mini(5 + floor, 11),
+				"speed": spd * 1.15,
+				"step_deg": maxf(12.0, 40.0 - floor * 3.5)})
+			result.append({"type": "cross",
+				"speed": spd, "offset_deg": 0.0})
+			if floor >= 3:
+				result.append({"type": "spiral",
+					"count": mini(3 + floor, 8),
+					"speed": spd * 0.9,
+					"step_deg": maxf(20.0, 65.0 - floor * 4.5)})
+
+		3:  # 狂战士 Berserker：全类型混搭，随机 3 个
+			var pool: Array = [
+				{"type": "radial",
+					"count": mini(8 + floor * 2, 20), "speed": spd},
+				{"type": "aimed",
+					"count": mini(4 + floor, 10),
+					"spread_deg": 20.0, "speed": spd * 1.15},
+				{"type": "spiral",
+					"count": mini(5 + floor, 10),
+					"speed": spd * 1.2,
+					"step_deg": maxf(12.0, 35.0 - floor * 3.0)},
+				{"type": "ring_aimed",
+					"ring_count": mini(8 + floor, 16),
+					"aimed_count": mini(3 + floor / 2, 6),
+					"speed": spd},
+			]
+			if floor >= 3:
+				pool.append({"type": "cross",
+					"speed": spd, "offset_deg": rng.randf_range(0.0, 44.9)})
+			pool.shuffle()
+			result = pool.slice(0, mini(3, pool.size()))
+
+	return result
+
+func _execute_boss_pattern(origin: Vector2) -> void:
+	if boss_state["patterns"].is_empty():
+		return
+	_fire_pattern(origin, boss_state["patterns"][boss_state["index"]])
+	boss_state["index"] = (boss_state["index"] + 1) % boss_state["patterns"].size()
+
+func _fire_pattern(origin: Vector2, pattern: Dictionary) -> void:
+	var spd: float = pattern["speed"]
+	match pattern["type"]:
+		"radial":
+			var n: int = pattern["count"]
+			for i in range(n):
+				_spawn_enemy_bullet(origin,
+					Vector2.RIGHT.rotated(TAU * i / float(n)), spd)
+
+		"spiral":
+			var n: int = pattern["count"]
+			var step: float = deg_to_rad(pattern["step_deg"])
+			var base: float = boss_state["spiral_angle"]
+			for i in range(n):
+				_spawn_enemy_bullet(origin,
+					Vector2.RIGHT.rotated(base + step * i), spd)
+			boss_state["spiral_angle"] = base + step  # 每次发射整体旋转一步
+
+		"aimed":
+			if player == null:
+				return
+			var n: int = pattern["count"]
+			var spread: float = deg_to_rad(pattern["spread_deg"])
+			var to_pl: Vector2 = origin.direction_to(player.global_position)
+			var start: float = -spread * (n - 1) * 0.5
+			for i in range(n):
+				_spawn_enemy_bullet(origin, to_pl.rotated(start + spread * i), spd)
+
+		"cross":
+			var off: float = deg_to_rad(pattern["offset_deg"])
+			for i in range(4):
+				_spawn_enemy_bullet(origin,
+					Vector2.RIGHT.rotated(off + PI * 0.5 * i), spd)
+			for i in range(4):
+				_spawn_enemy_bullet(origin,
+					Vector2.RIGHT.rotated(off + PI * 0.25 + PI * 0.5 * i), spd * 0.82)
+
+		"ring_aimed":
+			var rn: int = pattern["ring_count"]
+			for i in range(rn):
+				_spawn_enemy_bullet(origin,
+					Vector2.RIGHT.rotated(TAU * i / float(rn)), spd * 0.8)
+			if player != null:
+				var an: int = pattern["aimed_count"]
+				var spread: float = deg_to_rad(20.0)
+				var to_pl: Vector2 = origin.direction_to(player.global_position)
+				var start: float = -spread * (an - 1) * 0.5
+				for i in range(an):
+					_spawn_enemy_bullet(origin, to_pl.rotated(start + spread * i), spd * 1.2)
 
 func _input(event: InputEvent) -> void:
 	if not paused_for_upgrade or not event.is_pressed():
@@ -300,6 +509,15 @@ func _load_room() -> void:
 	elif room_type == "normal":
 		_spawn_enemy_count(mini(4, 2 + int(room_number / 2)))
 	elif room_type == "boss":
+		var boss_seed: int = rng.randi()
+		boss_state["seed"] = boss_seed
+		# concept / aspect / archetype 独立随机，产生 5×5×4 种 Boss 组合。
+		boss_state["concept_id"]   = boss_seed % _boss_concepts.size()
+		boss_state["aspect_id"] = (boss_seed / _boss_concepts.size()) % _dungeon_aspects.size()
+		boss_state["archetype_id"] = (boss_seed / (_boss_concepts.size() * _dungeon_aspects.size())) % 4
+		boss_state["index"] = 0
+		boss_state["spiral_angle"] = 0.0
+		boss_state["patterns"] = _generate_boss_patterns(floor_number, boss_state["archetype_id"])
 		_spawn_enemy_count(1, true)
 	elif room_type == "treasure":
 		_spawn_room_item("treasure")
@@ -331,18 +549,60 @@ func _spawn_enemy_in_room(boss := false) -> void:
 	)
 	enemy.target = player
 	if boss:
-		enemy.visual_scale = 0.85
-		enemy.speed = 42.0 + floor_number * 3.0
-		enemy.health = 12 + floor_number * 8
-	elif rng.randf() < min(0.15 + floor_number * 0.08, 0.6):
-		enemy.enemy_type = "bat"
-		enemy.visual_scale = 0.5
-		enemy.speed = 90.0 + min(room_number * 3.0 + floor_number * 4.0, 50.0)
-		enemy.health = 1 + int(floor_number / 2)
+		var archetype: int = boss_state.get("archetype_id", 0)
+		var concept: Dictionary = _boss_concepts[boss_state.get("concept_id", 0)]
+		var aspect: Dictionary = _dungeon_aspects[boss_state.get("aspect_id", 0)]
+		var concept_outer: Color = concept["outer"]
+		var concept_inner: Color = concept["inner"]
+		var aspect_outer: Color = aspect["outer"]
+		var aspect_inner: Color = aspect["inner"]
+		var base_speed := 42.0 + floor_number * 3.0
+		var base_hp    := 12 + floor_number * 8
+		enemy.visual_scale        = 3.25
+		enemy.animal_concept      = concept["key"]
+		enemy.archetype_color     = concept_outer.lerp(aspect_outer, 0.45)
+		enemy.concept_inner_color = concept_inner.lerp(aspect_inner, 0.55)
+		enemy.speed  = base_speed * concept["speed_mult"] * aspect["speed_mult"]
+		enemy.health = int(base_hp * concept["hp_mult"] * aspect["hp_mult"])
+		# 应用 archetype 行为（移动方式 + 数值叠加）
+		match archetype:
+			0:  # 炮台 Artillery — 保距，高血量
+				enemy.movement_mode = "retreat"
+				enemy.orbit_radius  = 260.0
+				enemy.speed  *= 0.72
+				enemy.health  = int(enemy.health * 1.4)
+			1:  # 追击 Chaser — 直线冲锋 + 波动，高速
+				enemy.movement_mode = "auto"
+				enemy.enemy_type    = "bat"   # 保留波浪移动效果
+				enemy.speed  *= 1.5
+			2:  # 舞者 Dancer — 环绕，难以攻击
+				enemy.movement_mode = "orbit"
+				enemy.orbit_radius  = 200.0
+				enemy.speed  *= 1.1
+				enemy.health  = int(enemy.health * 1.1)
+			3:  # 狂战士 Berserker — 狂乱冲刺，超高血量
+				enemy.movement_mode = "erratic"
+				enemy.speed  *= 1.3
+				enemy.health  = int(enemy.health * 1.6)
 	else:
-		enemy.visual_scale = 0.46
-		enemy.speed = 58.0 + min(room_number * 4.0 + floor_number * 2.0, 42.0)
-		enemy.health = 2 + int(room_number / 2) + int(floor_number / 2)
+		var pool: Array = []
+		for candidate in _enemy_families:
+			if floor_number >= int(candidate["min_floor"]):
+				pool.append(candidate)
+		var family: Dictionary = pool[rng.randi() % pool.size()]
+		var aspect: Dictionary = _dungeon_aspects[rng.randi() % _dungeon_aspects.size()]
+		enemy.enemy_type = family["key"]
+		enemy.animal_concept = family["key"]
+		enemy.movement_mode = family["mode"]
+		enemy.visual_scale = family["scale"]
+		enemy.archetype_color = aspect["outer"]
+		enemy.concept_inner_color = aspect["inner"]
+		enemy.speed = (float(family["speed"]) + minf(room_number * 3.0 + floor_number * 2.0, 48.0)) * aspect["speed_mult"]
+		enemy.health = maxi(1, int((int(family["hp"]) + int(room_number / 2) + int(floor_number / 2)) * aspect["hp_mult"]))
+		if family["key"] == "spider":
+			enemy.orbit_radius = 95.0
+		elif family["key"] == "cultist":
+			enemy.orbit_radius = 245.0
 	enemy.defeated.connect(_on_enemy_defeated)
 	enemies.add_child(enemy)
 
@@ -365,7 +625,7 @@ func _spawn_room_item(source: String) -> void:
 		stairs.item_id = "stairs"
 		stairs.item_name = "Next Floor"
 		stairs.item_color = Color("#ffffff")
-		stairs.position = room_rect.get_center() + Vector2(0, 62)
+		stairs.position = room_rect.get_center() + Vector2(0, 90)
 		stairs.picked.connect(_on_item_picked)
 		pickups.add_child(stairs)
 		return
@@ -481,8 +741,8 @@ func _on_gem_collected(value: int) -> void:
 func _show_upgrade_choices() -> void:
 	paused_for_upgrade = true
 	get_tree().paused = true
-	if joystick != null and joystick.has_method("set_active"):
-		joystick.set_active(false)
+	joystick_move.set_active(false)
+	joystick_aim.set_active(false)
 	level_panel.visible = true
 	current_upgrade_keys.clear()
 	var choices_box: HBoxContainer = level_panel.get_node("Panel/Content/Choices")
@@ -530,8 +790,8 @@ func _choose_upgrade(key: String) -> void:
 	level_panel.visible = false
 	get_tree().paused = false
 	paused_for_upgrade = false
-	if joystick != null and joystick.has_method("set_active"):
-		joystick.set_active(true)
+	joystick_move.set_active(true)
+	joystick_aim.set_active(true)
 
 func _apply_stats() -> void:
 	if player == null:
@@ -650,8 +910,8 @@ func _on_player_died() -> void:
 		return
 	game_over = true
 	get_tree().paused = true
-	if joystick != null and joystick.has_method("set_active"):
-		joystick.set_active(false)
+	joystick_move.set_active(false)
+	joystick_aim.set_active(false)
 	var overlay := Control.new()
 	overlay.name = "GameOverPanel"
 	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)

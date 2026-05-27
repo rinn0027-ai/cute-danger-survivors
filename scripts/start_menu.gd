@@ -1,6 +1,9 @@
 extends Control
 
+const MusicPlayer := preload("res://scripts/music_player.gd")
+
 func _ready() -> void:
+	add_child(MusicPlayer.new())
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 
@@ -30,7 +33,7 @@ func _ready() -> void:
 	center.add_child(title)
 
 	var subtitle := Label.new()
-	subtitle.text = "Cute Danger Survivors"
+	subtitle.text = "roguelike · bullet hell · survive!"
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	subtitle.add_theme_font_size_override("font_size", 22)
 	subtitle.modulate = Color("#8899aa")
@@ -41,7 +44,7 @@ func _ready() -> void:
 	center.add_child(spacer)
 
 	var controls := Label.new()
-	controls.text = "WASD / Arrows to move\nAim with mouse, auto fire\nDefeat enemies, level up, choose upgrades\nBeat the Boss to reach the next floor"
+	controls.text = "📱 Mobile  Left stick = Move · Right stick = Aim & Fire\n⌨️  Desktop  WASD / Arrows = Move · Mouse = Aim · Auto fire\nDefeat enemies · Level up · Choose upgrades · Beat the Boss"
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	controls.add_theme_font_size_override("font_size", 18)
 	controls.modulate = Color("#99aabb")
