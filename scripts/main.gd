@@ -515,6 +515,8 @@ func _load_room() -> void:
 	if cleared_rooms.has(current_room):
 		if dungeon.get(current_room, "normal") == "normal" and room_number >= 8:
 			_spawn_enemy_count(1)
+		elif dungeon.get(current_room, "normal") == "boss":
+			_ensure_next_floor_portal()
 		_open_door()
 	elif room_type == "start":
 		_open_door()
@@ -652,6 +654,12 @@ func _spawn_room_item(source: String) -> void:
 	item.position = room_rect.get_center()
 	item.picked.connect(_on_item_picked)
 	pickups.add_child(item)
+
+func _ensure_next_floor_portal() -> void:
+	for pickup in pickups.get_children():
+		if "item_id" in pickup and pickup.item_id == "stairs":
+			return
+	_spawn_room_item("stairs")
 
 func _on_item_picked(item_id: String) -> void:
 	if item_id == "stairs":
