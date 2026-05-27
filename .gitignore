@@ -2,5 +2,6 @@
 .import/
 build/
 export/
+docs/*.import
 *.tmp
 *.translation
