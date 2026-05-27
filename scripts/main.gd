@@ -123,6 +123,7 @@ func _ready() -> void:
 	_sfx = SfxPlayer.new()
 	add_child(_sfx)
 	rng.randomize()
+	_configure_room_rect()
 	_generate_dungeon()
 	add_child(_make_floor())
 	add_child(_make_room_walls())
@@ -157,6 +158,12 @@ func _ready() -> void:
 	add_child(joy_layer)
 	_load_room()
 
+func _configure_room_rect() -> void:
+	var vp_size := get_viewport_rect().size
+	var room_width := maxf(832.0, vp_size.x - 128.0)
+	var room_height := maxf(416.0, vp_size.y - 124.0)
+	room_rect = Rect2(Vector2(64, 64), Vector2(room_width, room_height))
+
 func _physics_process(delta: float) -> void:
 	if paused_for_upgrade or game_over:
 		return
@@ -188,10 +195,8 @@ func _handle_shooting() -> void:
 		# 右摇杆主动推出：按摇杆方向射击
 		direction = joystick_aim.direction
 	elif _is_touch_session:
-		# 触屏会话但右摇杆未推：自动瞄准最近敌人
-		direction = _nearest_enemy_direction()
-		if direction == Vector2.ZERO:
-			direction = joystick_move.direction  # 无敌人时朝移动方向射
+		# 触屏模式下，右摇杆就是弹幕控制；不推右摇杆就不射击。
+		return
 	else:
 		# 桌面鼠标瞄准
 		direction = player.global_position.direction_to(get_global_mouse_position())
@@ -226,6 +231,8 @@ func _fire_player_bullets(direction: Vector2) -> void:
 		bullet.pierce = stats["pierce"]
 		bullet.global_position = player.global_position + bullet.direction * 18.0
 		bullets.add_child(bullet)
+	if _sfx != null:
+		_sfx.play_shoot()
 
 func _fire_enemy_bullets() -> void:
 	if enemies.get_child_count() == 0:
@@ -389,8 +396,12 @@ func _make_floor() -> Node2D:
 	var floor := Node2D.new()
 	floor.name = "PixelFloor"
 	var tile_texture := _load_png_texture("res://assets/sprites/floor.png")
-	for x in range(2, 28):
-		for y in range(2, 16):
+	var x_start := int(floor(room_rect.position.x / 32.0))
+	var x_end := int(ceil(room_rect.end.x / 32.0))
+	var y_start := int(floor(room_rect.position.y / 32.0))
+	var y_end := int(ceil(room_rect.end.y / 32.0))
+	for x in range(x_start, x_end):
+		for y in range(y_start, y_end):
 			var tile := Sprite2D.new()
 			tile.texture = tile_texture
 			tile.position = Vector2(x * 32, y * 32)
@@ -400,26 +411,27 @@ func _make_floor() -> Node2D:
 func _make_room_walls() -> Node2D:
 	var walls := Node2D.new()
 	walls.name = "RoomWalls"
+	var vp_size := get_viewport_rect().size
 	var color := Color("#151827")
 	var top := ColorRect.new()
 	top.color = color
 	top.position = Vector2(0, 0)
-	top.size = Vector2(960, 64)
+	top.size = Vector2(vp_size.x, room_rect.position.y)
 	walls.add_child(top)
 	var bottom := ColorRect.new()
 	bottom.color = color
-	bottom.position = Vector2(0, 480)
-	bottom.size = Vector2(960, 64)
+	bottom.position = Vector2(0, room_rect.end.y)
+	bottom.size = Vector2(vp_size.x, maxf(0.0, vp_size.y - room_rect.end.y))
 	walls.add_child(bottom)
 	var left := ColorRect.new()
 	left.color = color
-	left.position = Vector2(0, 64)
-	left.size = Vector2(64, 416)
+	left.position = Vector2(0, room_rect.position.y)
+	left.size = Vector2(room_rect.position.x, room_rect.size.y)
 	walls.add_child(left)
 	var right := ColorRect.new()
 	right.color = color
-	right.position = Vector2(896, 64)
-	right.size = Vector2(64, 416)
+	right.position = Vector2(room_rect.end.x, room_rect.position.y)
+	right.size = Vector2(maxf(0.0, vp_size.x - room_rect.end.x), room_rect.size.y)
 	walls.add_child(right)
 	return walls
 

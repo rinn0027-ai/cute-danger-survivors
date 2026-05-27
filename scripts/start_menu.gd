@@ -69,9 +69,28 @@ func _ready() -> void:
 	center.add_child(hint)
 
 func _start_game() -> void:
+	_request_mobile_fullscreen()
 	get_tree().change_scene_to_file("res://scenes/Main.tscn")
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
 		if event.keycode == KEY_ENTER or event.keycode == KEY_SPACE:
 			_start_game()
+
+func _request_mobile_fullscreen() -> void:
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+	if not OS.has_feature("web"):
+		return
+	JavaScriptBridge.eval("""
+		(() => {
+			const root = document.documentElement;
+			if (root.requestFullscreen && !document.fullscreenElement) {
+				root.requestFullscreen().catch(() => {});
+			}
+			if (screen.orientation && screen.orientation.lock) {
+				screen.orientation.lock('landscape').catch(() => {});
+			}
+			document.body.style.overflow = 'hidden';
+			document.documentElement.style.overflow = 'hidden';
+		})();
+	""")
