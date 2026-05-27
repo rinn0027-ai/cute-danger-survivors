@@ -73,12 +73,12 @@ var _boss_concepts := [
 ]
 
 var _enemy_families := [
-	{"key": "skeleton", "min_floor": 1, "scale": 1.25, "mode": "auto", "speed": 66.0, "hp": 2},
-	{"key": "imp", "min_floor": 1, "scale": 1.18, "mode": "erratic", "speed": 108.0, "hp": 1},
-	{"key": "cultist", "min_floor": 2, "scale": 1.34, "mode": "retreat", "speed": 58.0, "hp": 3},
-	{"key": "spider", "min_floor": 2, "scale": 1.42, "mode": "orbit", "speed": 86.0, "hp": 2},
-	{"key": "zombie", "min_floor": 3, "scale": 1.45, "mode": "auto", "speed": 50.0, "hp": 5},
-	{"key": "mimic", "min_floor": 4, "scale": 1.55, "mode": "erratic", "speed": 78.0, "hp": 4},
+	{"key": "skeleton", "min_floor": 1, "scale": 2.15, "mode": "auto", "speed": 66.0, "hp": 2},
+	{"key": "imp", "min_floor": 1, "scale": 1.95, "mode": "erratic", "speed": 108.0, "hp": 1},
+	{"key": "cultist", "min_floor": 2, "scale": 2.3, "mode": "retreat", "speed": 58.0, "hp": 3},
+	{"key": "spider", "min_floor": 2, "scale": 2.35, "mode": "orbit", "speed": 86.0, "hp": 2},
+	{"key": "zombie", "min_floor": 3, "scale": 2.55, "mode": "auto", "speed": 50.0, "hp": 5},
+	{"key": "mimic", "min_floor": 4, "scale": 2.75, "mode": "erratic", "speed": 78.0, "hp": 4},
 ]
 
 var _dungeon_aspects := [
@@ -570,7 +570,7 @@ func _spawn_enemy_in_room(boss := false) -> void:
 		var aspect_inner: Color = aspect["inner"]
 		var base_speed := 42.0 + floor_number * 3.0
 		var base_hp    := 12 + floor_number * 8
-		enemy.visual_scale        = 3.25
+		enemy.visual_scale        = 6.0
 		enemy.animal_concept      = concept["key"]
 		enemy.archetype_color     = concept_outer.lerp(aspect_outer, 0.45)
 		enemy.concept_inner_color = concept_inner.lerp(aspect_inner, 0.55)
