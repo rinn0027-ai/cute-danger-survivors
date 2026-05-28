@@ -4,7 +4,7 @@
 // Incrementing CACHE_VERSION will kick off the install event and force
 // previously cached resources to be updated from the network.
 /** @type {string} */
-const CACHE_VERSION = '1779967055|1244992';
+const CACHE_VERSION = '1779967701|1128018';
 /** @type {string} */
 const CACHE_PREFIX = 'Cute Danger Surv-sw-cache-';
 const CACHE_NAME = CACHE_PREFIX + CACHE_VERSION;

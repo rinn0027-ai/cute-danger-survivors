@@ -220,7 +220,6 @@ func _physics_process(delta: float) -> void:
 	player.joystick_direction = joystick_move.direction
 	_keep_player_inside_room()
 	_handle_shooting()
-	_check_door_transition()
 	if enemy_shoot_timer <= 0.0:
 		_fire_enemy_bullets()
 		var shoot_interval := 1.25
@@ -911,29 +910,9 @@ func _enter_door(direction: Vector2i) -> void:
 		room_number += 1
 	call_deferred("_load_room")
 
-func _check_door_transition() -> void:
-	if not room_cleared or changing_room:
-		return
-	if player.position.x >= room_rect.end.x + 14.0:
-		_enter_door(Vector2i.RIGHT)
-	elif player.position.x <= room_rect.position.x - 14.0:
-		_enter_door(Vector2i.LEFT)
-	elif player.position.y <= room_rect.position.y - 14.0:
-		_enter_door(Vector2i.UP)
-	elif player.position.y >= room_rect.end.y + 14.0:
-		_enter_door(Vector2i.DOWN)
-
 func _keep_player_inside_room() -> void:
-	if room_cleared:
-		var left_limit := room_rect.position.x - 32.0 if dungeon.has(current_room + Vector2i.LEFT) else room_rect.position.x + 16.0
-		var right_limit := room_rect.end.x + 32.0 if dungeon.has(current_room + Vector2i.RIGHT) else room_rect.end.x - 16.0
-		var top_limit := room_rect.position.y - 32.0 if dungeon.has(current_room + Vector2i.UP) else room_rect.position.y + 16.0
-		var bottom_limit := room_rect.end.y + 32.0 if dungeon.has(current_room + Vector2i.DOWN) else room_rect.end.y - 16.0
-		player.position.x = clamp(player.position.x, left_limit, right_limit)
-		player.position.y = clamp(player.position.y, top_limit, bottom_limit)
-	else:
-		player.position.x = clamp(player.position.x, room_rect.position.x + 16, room_rect.end.x - 16)
-		player.position.y = clamp(player.position.y, room_rect.position.y + 16, room_rect.end.y - 16)
+	player.position.x = clamp(player.position.x, room_rect.position.x + 16.0, room_rect.end.x - 16.0)
+	player.position.y = clamp(player.position.y, room_rect.position.y + 16.0, room_rect.end.y - 16.0)
 
 func _on_gem_collected(value: int) -> void:
 	xp += value
@@ -1249,7 +1228,7 @@ func _update_hearts(hearts: HBoxContainer) -> void:
 		child.queue_free()
 	var max_units := int(ceil(float(player.max_health) / 2.0))
 	var full_units := int(player.health / 2)
-	var has_half := player.health % 2 == 1
+	var has_half: bool = player.health % 2 == 1
 	var shown_units := mini(max_units, 10)
 	for i in range(shown_units):
 		var heart := TextureRect.new()
