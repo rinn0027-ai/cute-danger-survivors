@@ -11,6 +11,9 @@ const SfxPlayer   := preload("res://scripts/sfx_player.gd")
 
 var player: CharacterBody2D
 var hud: CanvasLayer
+var boss_panel: Control
+var boss_bar: ProgressBar
+var boss_name_label: Label
 var joystick_move: Control   # 手机：单摇杆控制移动
 var joystick_aim: Control    # 桌面兼容保留；手机不再创建右摇杆
 var _sfx: Node               # 音效管理器
@@ -99,6 +102,11 @@ var stats := {
 	"bullet_count": 1,
 	"spread": 0.0,
 	"pierce": 0,
+	"bullet_size": 1.0,
+	"homing": 0.0,
+	"split_shot": false,
+	"ember_bullets": false,
+	"void_bullets": false,
 	"move_speed": 160.0,
 	"max_health": 20
 }
@@ -162,7 +170,7 @@ func _configure_room_rect() -> void:
 	var vp_size := get_viewport_rect().size
 	if vp_size.y > vp_size.x:
 		var margin_x := 24.0
-		var top_margin := 106.0
+		var top_margin := 164.0
 		var bottom_controls := 178.0
 		room_rect = Rect2(
 			Vector2(margin_x, top_margin),
@@ -192,7 +200,9 @@ func _physics_process(delta: float) -> void:
 			if "max_health" in boss and boss.max_health > 0:
 				var hp_ratio: float = float(boss.health) / float(boss.max_health)
 				if hp_ratio < 0.4:
-					shoot_interval = 0.62  # 狂暴：射击间隔减半
+					shoot_interval = 0.52  # 狂暴：射击间隔更短
+				elif hp_ratio < 0.7:
+					shoot_interval = 0.82
 		enemy_shoot_timer = shoot_interval
 	_update_hud()
 
@@ -239,6 +249,14 @@ func _fire_player_bullets(direction: Vector2) -> void:
 		bullet.speed = stats["shot_speed"]
 		bullet.damage = stats["damage"]
 		bullet.pierce = stats["pierce"]
+		bullet.size_mult = stats["bullet_size"]
+		bullet.homing_strength = stats["homing"]
+		bullet.split_on_hit = stats["split_shot"]
+		bullet.split_scene = BulletScene
+		if stats["void_bullets"]:
+			bullet.effect = "void"
+		elif stats["ember_bullets"]:
+			bullet.effect = "ember"
 		bullet.global_position = player.global_position + bullet.direction * 18.0
 		bullets.add_child(bullet)
 	if _sfx != null:
@@ -265,73 +283,75 @@ func _spawn_enemy_bullet(origin: Vector2, direction: Vector2, bullet_speed: floa
 	bullet.global_position = origin + bullet.direction * 20.0
 	bullets.add_child(bullet)
 
-func _generate_boss_patterns(floor: int, archetype: int) -> Array:
-	# 第 1 层：固定 8 方向，还没解锁随机原型
-	if floor == 1:
-		return [{"type": "radial", "count": 8, "speed": 185.0}]
+func _spawn_enemy_bullet_sized(origin: Vector2, direction: Vector2, bullet_speed: float, size_mult: float, lifetime := 3.0) -> void:
+	var bullet := BulletScene.new()
+	bullet.from_player = false
+	bullet.direction = direction.normalized()
+	bullet.speed = bullet_speed
+	bullet.damage = 1
+	bullet.lifetime = lifetime
+	bullet.size_mult = size_mult
+	bullet.global_position = origin + bullet.direction * 24.0
+	bullets.add_child(bullet)
 
-	var spd := 175.0 + floor * 12.0      # 基础子弹速度随层递增
+func _generate_boss_patterns(floor: int, archetype: int) -> Array:
+	var spd := 158.0 + floor * 11.0      # 基础子弹速度随层递增
 	var result: Array = []
 
 	match archetype:
 		0:  # 炮台 Artillery：大量覆盖弹幕，环形+追踪组合
-			result.append({"type": "radial",
-				"count": mini(10 + floor * 2, 22), "speed": spd})
+			result.append({"type": "gap_ring",
+				"count": mini(16 + floor * 2, 30), "gap_index": rng.randi_range(0, 7), "gap_width": 2, "speed": spd * 0.92})
 			result.append({"type": "ring_aimed",
-				"ring_count": mini(8 + floor, 18),
-				"aimed_count": mini(3 + floor / 2, 7),
+				"ring_count": mini(12 + floor, 24),
+				"aimed_count": mini(4 + floor / 2, 8),
 				"speed": spd * 1.05})
-			if floor >= 3:
-				result.append({"type": "cross",
-					"speed": spd * 0.88, "offset_deg": 22.5})
+			result.append({"type": "wall_sweep",
+				"lanes": mini(5 + floor, 10), "speed": spd * 0.78})
 
 		1:  # 追击 Chaser：精准散弹为主，配合螺旋
 			result.append({"type": "aimed",
-				"count": mini(3 + floor, 9),
-				"spread_deg": 14.0, "speed": spd * 1.25})
-			result.append({"type": "spiral",
-				"count": mini(4 + floor, 9),
-				"speed": spd * 1.1,
-				"step_deg": maxf(18.0, 42.0 - floor * 3.0)})
-			if floor >= 4:
-				result.append({"type": "aimed",
-					"count": mini(6 + floor, 10),
-					"spread_deg": 7.0, "speed": spd * 1.4})
+				"count": mini(5 + floor, 11),
+				"spread_deg": 10.0, "speed": spd * 1.22})
+			result.append({"type": "flower",
+				"petals": mini(7 + floor, 13), "layers": 2, "speed": spd * 0.9})
+			result.append({"type": "double_spiral",
+				"count": mini(5 + floor, 10),
+				"speed": spd * 1.0,
+				"step_deg": maxf(13.0, 36.0 - floor * 2.0)})
 
 		2:  # 舞者 Dancer：螺旋为主，十字穿插
-			result.append({"type": "spiral",
-				"count": mini(5 + floor, 11),
+			result.append({"type": "double_spiral",
+				"count": mini(6 + floor, 12),
 				"speed": spd * 1.15,
-				"step_deg": maxf(12.0, 40.0 - floor * 3.5)})
-			result.append({"type": "cross",
+				"step_deg": maxf(10.0, 34.0 - floor * 2.4)})
+			result.append({"type": "rotating_cross",
 				"speed": spd, "offset_deg": 0.0})
-			if floor >= 3:
-				result.append({"type": "spiral",
-					"count": mini(3 + floor, 8),
-					"speed": spd * 0.9,
-					"step_deg": maxf(20.0, 65.0 - floor * 4.5)})
+			result.append({"type": "gap_ring",
+				"count": mini(18 + floor * 2, 32), "gap_index": rng.randi_range(0, 9), "gap_width": 3, "speed": spd * 0.86})
 
 		3:  # 狂战士 Berserker：全类型混搭，随机 3 个
 			var pool: Array = [
-				{"type": "radial",
-					"count": mini(8 + floor * 2, 20), "speed": spd},
+				{"type": "gap_ring",
+					"count": mini(18 + floor * 2, 32), "gap_index": rng.randi_range(0, 10), "gap_width": 2, "speed": spd},
 				{"type": "aimed",
-					"count": mini(4 + floor, 10),
-					"spread_deg": 20.0, "speed": spd * 1.15},
-				{"type": "spiral",
-					"count": mini(5 + floor, 10),
+					"count": mini(6 + floor, 12),
+					"spread_deg": 16.0, "speed": spd * 1.15},
+				{"type": "double_spiral",
+					"count": mini(6 + floor, 12),
 					"speed": spd * 1.2,
-					"step_deg": maxf(12.0, 35.0 - floor * 3.0)},
+					"step_deg": maxf(10.0, 30.0 - floor * 2.0)},
 				{"type": "ring_aimed",
-					"ring_count": mini(8 + floor, 16),
-					"aimed_count": mini(3 + floor / 2, 6),
+					"ring_count": mini(12 + floor, 24),
+					"aimed_count": mini(4 + floor / 2, 8),
 					"speed": spd},
+				{"type": "flower",
+					"petals": mini(8 + floor, 14), "layers": 2, "speed": spd * 0.92},
 			]
-			if floor >= 3:
-				pool.append({"type": "cross",
-					"speed": spd, "offset_deg": rng.randf_range(0.0, 44.9)})
+			pool.append({"type": "rotating_cross",
+				"speed": spd, "offset_deg": rng.randf_range(0.0, 44.9)})
 			pool.shuffle()
-			result = pool.slice(0, mini(3, pool.size()))
+			result = pool.slice(0, mini(4, pool.size()))
 
 	return result
 
@@ -350,6 +370,18 @@ func _fire_pattern(origin: Vector2, pattern: Dictionary) -> void:
 				_spawn_enemy_bullet(origin,
 					Vector2.RIGHT.rotated(TAU * i / float(n)), spd)
 
+		"gap_ring":
+			var n: int = pattern["count"]
+			var gap_index: int = pattern.get("gap_index", 0)
+			var gap_width: int = pattern.get("gap_width", 2)
+			var offset: float = boss_state["spiral_angle"]
+			for i in range(n):
+				if abs(i - gap_index) <= gap_width:
+					continue
+				var size := 1.18 if i % 3 == 0 else 0.95
+				_spawn_enemy_bullet_sized(origin, Vector2.RIGHT.rotated(offset + TAU * i / float(n)), spd, size, 3.3)
+			boss_state["spiral_angle"] = offset + deg_to_rad(9.0)
+
 		"spiral":
 			var n: int = pattern["count"]
 			var step: float = deg_to_rad(pattern["step_deg"])
@@ -358,6 +390,27 @@ func _fire_pattern(origin: Vector2, pattern: Dictionary) -> void:
 				_spawn_enemy_bullet(origin,
 					Vector2.RIGHT.rotated(base + step * i), spd)
 			boss_state["spiral_angle"] = base + step  # 每次发射整体旋转一步
+
+		"double_spiral":
+			var n: int = pattern["count"]
+			var step: float = deg_to_rad(pattern["step_deg"])
+			var base: float = boss_state["spiral_angle"]
+			for i in range(n):
+				var dir_a := Vector2.RIGHT.rotated(base + step * i)
+				var dir_b := Vector2.RIGHT.rotated(base + PI + step * i)
+				_spawn_enemy_bullet_sized(origin, dir_a, spd, 1.0, 3.1)
+				_spawn_enemy_bullet_sized(origin, dir_b, spd * 0.92, 0.82, 3.3)
+			boss_state["spiral_angle"] = base + step * 0.72
+
+		"flower":
+			var petals: int = pattern["petals"]
+			var layers: int = pattern["layers"]
+			var base: float = boss_state["spiral_angle"]
+			for layer in range(layers):
+				for i in range(petals):
+					var dir := Vector2.RIGHT.rotated(base + TAU * i / float(petals) + layer * deg_to_rad(13.0))
+					_spawn_enemy_bullet_sized(origin, dir, spd + layer * 32.0, 1.06 - layer * 0.18, 3.2)
+			boss_state["spiral_angle"] = base + deg_to_rad(17.0)
 
 		"aimed":
 			if player == null:
@@ -378,6 +431,14 @@ func _fire_pattern(origin: Vector2, pattern: Dictionary) -> void:
 				_spawn_enemy_bullet(origin,
 					Vector2.RIGHT.rotated(off + PI * 0.25 + PI * 0.5 * i), spd * 0.82)
 
+		"rotating_cross":
+			var off: float = boss_state["spiral_angle"] + deg_to_rad(pattern["offset_deg"])
+			for i in range(8):
+				_spawn_enemy_bullet_sized(origin, Vector2.RIGHT.rotated(off + TAU * i / 8.0), spd, 1.05, 3.0)
+			for i in range(8):
+				_spawn_enemy_bullet_sized(origin, Vector2.RIGHT.rotated(off + deg_to_rad(11.25) + TAU * i / 8.0), spd * 0.72, 0.82, 3.5)
+			boss_state["spiral_angle"] = off + deg_to_rad(18.0)
+
 		"ring_aimed":
 			var rn: int = pattern["ring_count"]
 			for i in range(rn):
@@ -390,6 +451,18 @@ func _fire_pattern(origin: Vector2, pattern: Dictionary) -> void:
 				var start: float = -spread * (an - 1) * 0.5
 				for i in range(an):
 					_spawn_enemy_bullet(origin, to_pl.rotated(start + spread * i), spd * 1.2)
+
+		"wall_sweep":
+			var lanes: int = pattern["lanes"]
+			var left_to_right := rng.randf() < 0.5
+			var y_step := room_rect.size.y / float(lanes + 1)
+			var x := room_rect.position.x + 12.0 if left_to_right else room_rect.end.x - 12.0
+			var dir := Vector2.RIGHT if left_to_right else Vector2.LEFT
+			for i in range(lanes):
+				var y := room_rect.position.y + y_step * float(i + 1)
+				if i == lanes / 2:
+					continue
+				_spawn_enemy_bullet_sized(Vector2(x, y), dir, spd, 0.92, 3.4)
 
 func _input(event: InputEvent) -> void:
 	if not paused_for_upgrade or not event.is_pressed():
@@ -583,8 +656,8 @@ func _spawn_enemy_in_room(boss := false) -> void:
 		var aspect_outer: Color = aspect["outer"]
 		var aspect_inner: Color = aspect["inner"]
 		var base_speed := 42.0 + floor_number * 3.0
-		var base_hp    := 12 + floor_number * 8
-		enemy.visual_scale        = 6.0
+		var base_hp    := 42 + floor_number * 24
+		enemy.visual_scale        = 7.2
 		enemy.animal_concept      = concept["key"]
 		enemy.archetype_color     = concept_outer.lerp(aspect_outer, 0.45)
 		enemy.concept_inner_color = concept_inner.lerp(aspect_inner, 0.55)
@@ -782,11 +855,17 @@ func _show_upgrade_choices() -> void:
 	for child in choices_box.get_children():
 		child.queue_free()
 	var choices := [
-		{"label": "Bigger Spark", "desc": "Damage +1", "key": "damage"},
+		{"label": "Ember Core", "desc": "Damage +1, fiery shots", "key": "damage"},
 		{"label": "Quick Boots", "desc": "Move speed +18", "key": "move_speed"},
-		{"label": "Rapid Fire", "desc": "Shoot faster", "key": "fire_cooldown"},
+		{"label": "Trigger Charm", "desc": "Shoot faster", "key": "fire_cooldown"},
 		{"label": "Tiny Heart", "desc": "Max HP +3", "key": "max_health"},
-		{"label": "Fast Shot", "desc": "Bullet speed +60", "key": "shot_speed"}
+		{"label": "Falcon Rune", "desc": "Bullet speed +60", "key": "shot_speed"},
+		{"label": "Triple Sigil", "desc": "+1 shot, wider arc", "key": "multishot"},
+		{"label": "Glass Needle", "desc": "Pierce +1", "key": "pierce"},
+		{"label": "Moon Magnet", "desc": "Shots bend toward enemies", "key": "homing"},
+		{"label": "Giant Tear", "desc": "Bigger bullets", "key": "bullet_size"},
+		{"label": "Void Splinter", "desc": "Hits split into shards", "key": "split_shot"},
+		{"label": "Royal Focus", "desc": "Damage +1, tighter spread", "key": "focus"}
 	]
 	choices.shuffle()
 	var picked: Array = choices.slice(0, 3)
@@ -813,6 +892,7 @@ func _show_upgrade_choices() -> void:
 func _choose_upgrade(key: String) -> void:
 	if key == "damage":
 		stats["damage"] += 1
+		stats["ember_bullets"] = true
 	elif key == "move_speed":
 		stats["move_speed"] += 18.0
 	elif key == "fire_cooldown":
@@ -822,6 +902,21 @@ func _choose_upgrade(key: String) -> void:
 		player.health += 3
 	elif key == "shot_speed":
 		stats["shot_speed"] += 60.0
+	elif key == "multishot":
+		stats["bullet_count"] = mini(7, stats["bullet_count"] + 1)
+		stats["spread"] = maxf(10.0, stats["spread"] + 5.0)
+	elif key == "pierce":
+		stats["pierce"] += 1
+	elif key == "homing":
+		stats["homing"] = minf(4.5, stats["homing"] + 1.4)
+	elif key == "bullet_size":
+		stats["bullet_size"] = minf(1.75, stats["bullet_size"] + 0.18)
+	elif key == "split_shot":
+		stats["split_shot"] = true
+		stats["void_bullets"] = true
+	elif key == "focus":
+		stats["damage"] += 1
+		stats["spread"] = maxf(0.0, stats["spread"] - 4.0)
 	_apply_stats()
 	current_upgrade_keys.clear()
 	level_panel.visible = false
@@ -858,6 +953,37 @@ func _make_hud() -> CanvasLayer:
 	stats_label.add_theme_constant_override("outline_size", 3)
 	stats_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	stats_panel.add_child(stats_label)
+	boss_panel = PanelContainer.new()
+	boss_panel.name = "BossPanel"
+	boss_panel.position = Vector2(18, 96)
+	boss_panel.size = Vector2(get_viewport_rect().size.x - 36, 58)
+	boss_panel.visible = false
+	boss_panel.add_theme_stylebox_override("panel", _make_card_style(Color("#241521"), Color("#ff6f7d"), 3))
+	root.add_child(boss_panel)
+	var boss_box := VBoxContainer.new()
+	boss_box.name = "BossBox"
+	boss_box.size = boss_panel.size - Vector2(24, 16)
+	boss_box.add_theme_constant_override("separation", 4)
+	boss_panel.add_child(boss_box)
+	boss_name_label = Label.new()
+	boss_name_label.name = "BossName"
+	boss_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	boss_name_label.add_theme_font_size_override("font_size", 15)
+	boss_name_label.add_theme_color_override("font_color", Color("#ffd1dc"))
+	boss_name_label.add_theme_color_override("font_outline_color", Color("#10131f"))
+	boss_name_label.add_theme_constant_override("outline_size", 3)
+	boss_box.add_child(boss_name_label)
+	boss_bar = ProgressBar.new()
+	boss_bar.name = "BossBar"
+	boss_bar.min_value = 0
+	boss_bar.max_value = 100
+	boss_bar.value = 100
+	boss_bar.custom_minimum_size = Vector2(0, 16)
+	boss_bar.show_percentage = false
+	boss_bar.add_theme_stylebox_override("background", _make_card_style(Color("#3a2030"), Color("#10131f"), 2))
+	boss_bar.add_theme_stylebox_override("fill", _make_card_style(Color("#ff4d6d"), Color("#ff4d6d"), 0))
+	boss_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	boss_box.add_child(boss_bar)
 	level_panel = _make_level_panel()
 	root.add_child(level_panel)
 	return layer
@@ -938,6 +1064,36 @@ func _update_hud() -> void:
 		door_text,
 		_minimap_summary()
 	]
+	_update_boss_bar()
+
+func _update_boss_bar() -> void:
+	if boss_panel == null:
+		return
+	var in_boss_room: bool = dungeon.get(current_room, "normal") == "boss"
+	if not in_boss_room or enemies.get_child_count() == 0:
+		boss_panel.visible = false
+		return
+	var boss := enemies.get_child(0)
+	if not ("max_health" in boss) or boss.max_health <= 0:
+		boss_panel.visible = false
+		return
+	boss_panel.visible = true
+	var hp_ratio: float = clampf(float(boss.health) / float(boss.max_health), 0.0, 1.0)
+	boss_bar.value = hp_ratio * 100.0
+	boss_name_label.text = "%s  %d/%d" % [_boss_display_name(), boss.health, boss.max_health]
+	if hp_ratio < 0.35:
+		boss_bar.add_theme_stylebox_override("fill", _make_card_style(Color("#ff2f4f"), Color("#ff2f4f"), 0))
+	elif hp_ratio < 0.7:
+		boss_bar.add_theme_stylebox_override("fill", _make_card_style(Color("#ff9b35"), Color("#ff9b35"), 0))
+	else:
+		boss_bar.add_theme_stylebox_override("fill", _make_card_style(Color("#ff4d6d"), Color("#ff4d6d"), 0))
+
+func _boss_display_name() -> String:
+	if boss_state.is_empty():
+		return "Dungeon Lord"
+	var concept: Dictionary = _boss_concepts[boss_state.get("concept_id", 0)]
+	var aspect: Dictionary = _dungeon_aspects[boss_state.get("aspect_id", 0)]
+	return "%s %s" % [String(aspect["key"]).capitalize(), String(concept["key"]).capitalize()]
 
 func _room_type_name(room_type: String) -> String:
 	if room_type == "start":
@@ -1048,8 +1204,22 @@ func _make_upgrade_icon_texture(key: String) -> Texture2D:
 		return _load_png_texture("res://assets/sprites/icon_damage.png")
 	if key == "move_speed":
 		return _load_png_texture("res://assets/sprites/icon_speed.png")
-	if key == "fire_cooldown" or key == "shot_speed":
+	if key == "fire_cooldown":
+		return _load_png_texture("res://assets/sprites/icon_trigger.png")
+	if key == "shot_speed":
+		return _load_png_texture("res://assets/sprites/icon_falcon.png")
+	if key == "pierce":
 		return _load_png_texture("res://assets/sprites/icon_pierce.png")
 	if key == "max_health":
 		return _load_png_texture("res://assets/sprites/icon_heart.png")
+	if key == "multishot":
+		return _load_png_texture("res://assets/sprites/icon_triple.png")
+	if key == "homing":
+		return _load_png_texture("res://assets/sprites/icon_magnet.png")
+	if key == "bullet_size":
+		return _load_png_texture("res://assets/sprites/icon_giant.png")
+	if key == "split_shot":
+		return _load_png_texture("res://assets/sprites/icon_void.png")
+	if key == "focus":
+		return _load_png_texture("res://assets/sprites/icon_focus.png")
 	return _load_png_texture("res://assets/sprites/icon_crown.png")

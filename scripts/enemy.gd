@@ -29,8 +29,11 @@ func _ready() -> void:
 	_rng.randomize()
 	max_health = health
 	name = "Enemy"
+	add_to_group("enemies")
 	collision_layer = 2
 	collision_mask = 1
+	if _is_boss_concept():
+		_add_boss_presence_layers()
 	sprite = Sprite2D.new()
 	if animal_concept != "":
 		# 所有有概念的敌人（boss 或新普通敌人）：内联像素画
@@ -47,7 +50,7 @@ func _ready() -> void:
 	var shape := CollisionShape2D.new()
 	var circle := CircleShape2D.new()
 	if animal_concept != "":
-		circle.radius = maxf(10.0, 8.0 * visual_scale)
+		circle.radius = maxf(10.0, 8.5 * visual_scale)
 	elif visual_scale >= 2.5:
 		circle.radius = 20
 	elif enemy_type == "bat" or enemy_type == "imp":
@@ -138,6 +141,58 @@ func take_damage(amount: int) -> void:
 	if health <= 0:
 		defeated.emit(global_position)
 		queue_free()
+
+func _is_boss_concept() -> bool:
+	return animal_concept in ["watcher", "lich", "dragon", "demon", "minotaur"]
+
+func _add_boss_presence_layers() -> void:
+	var shadow := Sprite2D.new()
+	shadow.name = "BossShadow"
+	shadow.texture = _make_pixel_texture([
+		"........................",
+		"........................",
+		"........................",
+		"......oooooooooooo......",
+		"....oooooooooooooooo....",
+		"...oooo..........oooo...",
+		"..ooo..............ooo..",
+		"..oo................oo..",
+		"..oo................oo..",
+		"..ooo..............ooo..",
+		"...oooo..........oooo...",
+		"....oooooooooooooooo....",
+		"......oooooooooooo......",
+		"........................",
+		"........................",
+		"........................",
+	], {"o": Color(0.0, 0.0, 0.0, 0.35)})
+	shadow.position = Vector2(0, 18)
+	shadow.scale = Vector2(visual_scale * 0.75, visual_scale * 0.45)
+	shadow.z_index = -2
+	add_child(shadow)
+	var sigil := Sprite2D.new()
+	sigil.name = "BossSigil"
+	sigil.texture = _make_pixel_texture([
+		"........................",
+		"...........ww...........",
+		".........w....w.........",
+		".......w........w.......",
+		".....w....oooo....w.....",
+		"....w...oo....oo...w....",
+		"...w...oo..ii..oo...w...",
+		"...w...oo..ii..oo...w...",
+		"....w...oo....oo...w....",
+		".....w....oooo....w.....",
+		".......w........w.......",
+		".........w....w.........",
+		"...........ww...........",
+		"........................",
+		"........................",
+		"........................",
+	], {"o": archetype_color.darkened(0.25), "i": concept_inner_color, "w": archetype_color.lightened(0.35)})
+	sigil.scale = Vector2(visual_scale * 0.62, visual_scale * 0.62)
+	sigil.z_index = -1
+	add_child(sigil)
 
 # ── 怪物像素精灵（16×16，o=外圈色，i=内部亮色，w=白色高光，.=透明）────
 func _make_concept_texture() -> Texture2D:
@@ -392,11 +447,14 @@ func _make_concept_texture() -> Texture2D:
 	], {"o": o, "i": i, "w": w})
 
 func _make_pixel_texture(rows: Array, palette: Dictionary) -> Texture2D:
-	var image := Image.create(16, rows.size(), false, Image.FORMAT_RGBA8)
+	var width := 1
+	for row in rows:
+		width = maxi(width, row.length())
+	var image := Image.create(width, rows.size(), false, Image.FORMAT_RGBA8)
 	for y in range(rows.size()):
 		var row: String = rows[y]
-		for x in range(row.length()):
-			var key := row.substr(x, 1)
+		for x in range(width):
+			var key := row.substr(x, 1) if x < row.length() else "."
 			image.set_pixel(x, y, palette.get(key, Color.TRANSPARENT))
 	return ImageTexture.create_from_image(image)
 

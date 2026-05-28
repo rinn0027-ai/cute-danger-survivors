@@ -190,27 +190,70 @@ def main():
         "......cccc......",
         "................",
     ], scale=3)
-    icons = {
-        "icon_damage.png": ("r", "R", "y"),
-        "icon_speed.png": ("b", "c", "w"),
-        "icon_pierce.png": ("p", "m", "w"),
-        "icon_heart.png": ("r", "m", "w"),
-        "icon_crown.png": ("y", "s", "w"),
+    icon_rows = {
+        "icon_damage.png": [
+            "................", "...kkkkkkkkkk...", "..kYYYYYYYYYYk..", ".kY....rr....Yk.",
+            ".kY...rRRr...Yk.", ".kY..rRyyRr..Yk.", ".kY...rRRr...Yk.", ".kY....rr....Yk.",
+            "..kYYYYYYYYYYk..", "...kkkkkkkkkk...", "................",
+        ],
+        "icon_speed.png": [
+            "................", "...kkkkkkkkkk...", "..kYYYYYYYYYYk..", ".kY..c.....c.Yk.",
+            ".kY...c...c..Yk.", ".kY....c.c...Yk.", ".kY..bbbbbbb.Yk.", ".kY....c.c...Yk.",
+            "..kYYYYYYYYYYk..", "...kkkkkkkkkk...", "................",
+        ],
+        "icon_pierce.png": [
+            "................", "...kkkkkkkkkk...", "..kYYYYYYYYYYk..", ".kY....p.....Yk.",
+            ".kY...pwp....Yk.", ".kY..pwwwp...Yk.", ".kY....p.....Yk.", ".kY..mmmmmm..Yk.",
+            "..kYYYYYYYYYYk..", "...kkkkkkkkkk...", "................",
+        ],
+        "icon_heart.png": [
+            "................", "...kkkkkkkkkk...", "..kYYYYYYYYYYk..", ".kY..rr..rr..Yk.",
+            ".kY.rmmrrmmr.Yk.", ".kY.rmmmmmmr.Yk.", ".kY..rmmmmr..Yk.", ".kY....rr....Yk.",
+            "..kYYYYYYYYYYk..", "...kkkkkkkkkk...", "................",
+        ],
+        "icon_crown.png": [
+            "................", "...kkkkkkkkkk...", "..kYYYYYYYYYYk..", ".kY.y..y..y..Yk.",
+            ".kY.yysyysy..Yk.", ".kY..yyyyyy..Yk.", ".kY..ssssss..Yk.", ".kY..........Yk.",
+            "..kYYYYYYYYYYk..", "...kkkkkkkkkk...", "................",
+        ],
+        "icon_trigger.png": [
+            "................", "...kkkkkkkkkk...", "..kYYYYYYYYYYk..", ".kY..bbbbbb..Yk.",
+            ".kY.bccccccb.Yk.", ".kY....cc...Yk.", ".kY...cc....Yk.", ".kY..cc.....Yk.",
+            "..kYYYYYYYYYYk..", "...kkkkkkkkkk...", "................",
+        ],
+        "icon_falcon.png": [
+            "................", "...kkkkkkkkkk...", "..kYYYYYYYYYYk..", ".kY....ww....Yk.",
+            ".kY...wbbww..Yk.", ".kY..wbbbbbw.Yk.", ".kY....bb...Yk.", ".kY...b..b..Yk.",
+            "..kYYYYYYYYYYk..", "...kkkkkkkkkk...", "................",
+        ],
+        "icon_triple.png": [
+            "................", "...kkkkkkkkkk...", "..kYYYYYYYYYYk..", ".kY..c..c..c.Yk.",
+            ".kY.cc.cc.cc.Yk.", ".kY..c..c..c.Yk.", ".kY....bbb...Yk.", ".kY...bbbbb..Yk.",
+            "..kYYYYYYYYYYk..", "...kkkkkkkkkk...", "................",
+        ],
+        "icon_magnet.png": [
+            "................", "...kkkkkkkkkk...", "..kYYYYYYYYYYk..", ".kY.pp....pp.Yk.",
+            ".kY.pw....wp.Yk.", ".kY.pw....wp.Yk.", ".kY..pppppp..Yk.", ".kY...mmmm...Yk.",
+            "..kYYYYYYYYYYk..", "...kkkkkkkkkk...", "................",
+        ],
+        "icon_giant.png": [
+            "................", "...kkkkkkkkkk...", "..kYYYYYYYYYYk..", ".kY...yyyy...Yk.",
+            ".kY..ywwwwy..Yk.", ".kY.ywwwwwwy.Yk.", ".kY..ywwwwy..Yk.", ".kY...yyyy...Yk.",
+            "..kYYYYYYYYYYk..", "...kkkkkkkkkk...", "................",
+        ],
+        "icon_void.png": [
+            "................", "...kkkkkkkkkk...", "..kYYYYYYYYYYk..", ".kY..p....p..Yk.",
+            ".kY...pmmmp..Yk.", ".kY..mmwwmm..Yk.", ".kY...pmmmp..Yk.", ".kY..p....p..Yk.",
+            "..kYYYYYYYYYYk..", "...kkkkkkkkkk...", "................",
+        ],
+        "icon_focus.png": [
+            "................", "...kkkkkkkkkk...", "..kYYYYYYYYYYk..", ".kY....y.....Yk.",
+            ".kY...ywy....Yk.", ".kY..ywwwy...Yk.", ".kY....y.....Yk.", ".kY..cccccc..Yk.",
+            "..kYYYYYYYYYYk..", "...kkkkkkkkkk...", "................",
+        ],
     }
-    for name, (a, b, h) in icons.items():
-        write_png(s(name), [
-            "................",
-            "...kkkkkkkkkk...",
-            "..kYYYYYYYYYYk..",
-            ".kY..........Yk.",
-            ".kY...%s%s%s...Yk." % (a, b, a),
-            ".kY..%s%s%s%s..Yk." % (a, b, h, a),
-            ".kY...%s%s%s...Yk." % (a, b, a),
-            ".kY..........Yk.",
-            "..kYYYYYYYYYYk..",
-            "...kkkkkkkkkk...",
-            "................",
-        ], scale=3)
+    for name, rows in icon_rows.items():
+        write_png(s(name), rows, scale=3)
     # PWA / export splash icons.
     write_png(os.path.join(ROOT, "assets", "visual_direction.png"), [
         "kkkkkkkkkkkkkkkk",
