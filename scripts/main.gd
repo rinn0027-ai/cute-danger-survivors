@@ -638,6 +638,29 @@ func _spawn_enemy_count(count: int, boss := false) -> void:
 	for i in range(count):
 		_spawn_enemy_in_room(boss)
 
+func _player_power_scale(for_boss := false) -> float:
+	var bullet_count: int = stats["bullet_count"]
+	var effective_bullets := 1.0 + float(maxi(0, bullet_count - 1)) * 0.72
+	var fire_rate: float = 0.36 / maxf(0.12, float(stats["fire_cooldown"]))
+	var damage_power: float = float(stats["damage"]) * effective_bullets * fire_rate
+	var utility := 1.0
+	utility += float(stats["pierce"]) * 0.10
+	utility += clampf(float(stats["homing"]) / 4.5, 0.0, 1.0) * 0.16
+	utility += maxf(0.0, float(stats["bullet_size"]) - 1.0) * 0.22
+	utility += maxf(0.0, float(stats["shot_speed"]) - 440.0) / 440.0 * 0.08
+	if stats["split_shot"]:
+		utility += 0.34
+	if stats["ember_bullets"]:
+		utility += 0.08
+	if stats["void_bullets"]:
+		utility += 0.08
+	var power := damage_power * utility
+	var upgrade_pressure := maxf(0.0, power - 1.0)
+	var floor_pressure := maxf(0.0, float(floor_number - 1)) * 0.10
+	if for_boss:
+		return minf(5.0 + floor_number * 0.22, 1.0 + floor_pressure + upgrade_pressure * 0.58)
+	return minf(3.6 + floor_number * 0.16, 1.0 + floor_pressure * 0.7 + upgrade_pressure * 0.34)
+
 func _spawn_enemy_in_room(boss := false) -> void:
 	var enemy := EnemyScene.new()
 	var spawn_margin_x := minf(180.0, room_rect.size.x * 0.32)
@@ -683,6 +706,7 @@ func _spawn_enemy_in_room(boss := false) -> void:
 				enemy.movement_mode = "erratic"
 				enemy.speed  *= 1.3
 				enemy.health  = int(enemy.health * 1.6)
+		enemy.health = maxi(1, int(ceil(float(enemy.health) * _player_power_scale(true))))
 	else:
 		var pool: Array = []
 		for candidate in _enemy_families:
@@ -698,6 +722,7 @@ func _spawn_enemy_in_room(boss := false) -> void:
 		enemy.concept_inner_color = aspect["inner"]
 		enemy.speed = (float(family["speed"]) + minf(room_number * 3.0 + floor_number * 2.0, 48.0)) * aspect["speed_mult"]
 		enemy.health = maxi(1, int((int(family["hp"]) + int(room_number / 2) + int(floor_number / 2)) * aspect["hp_mult"]))
+		enemy.health = maxi(1, int(ceil(float(enemy.health) * _player_power_scale(false))))
 		if family["key"] == "spider":
 			enemy.orbit_radius = 95.0
 		elif family["key"] == "cultist":
