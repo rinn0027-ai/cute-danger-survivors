@@ -146,39 +146,43 @@ def main():
         "................",
         "................",
     ], scale=4)
-    write_png(s("floor.png"), [
-        "dddddddddddddddd",
-        "dDDDDdDDDDdDDDDd",
-        "dD..DdD..DdD..Dd",
-        "dD..DdD..DdD..Dd",
-        "dddddddddddddddd",
-        "dDDdDDDDdDDDDdDd",
-        "dD.dD..DdD..DdDd",
-        "dDDdD..DdD..dDDd",
-        "dddddddddddddddd",
-        "dDDDDdDDDDdDDDDd",
-        "dD..DdD..DdD..Dd",
-        "dD..DdD..DdD..Dd",
-        "dddddddddddddddd",
-        "dDddddDddddDdddD",
-        "ddDddddDddddDddd",
-        "dddddddddddddddd",
-    ], scale=2)
-    write_png(s("door.png"), [
-        "................",
-        ".....yyyyyy.....",
-        "...yyNNNNNNyy...",
-        "..yNNNNNNNNNNy..",
-        "..yNNKNNNNKNNy..",
-        "..yNNNNccNNNNy..",
-        "..yNNNNccNNNNy..",
-        "..yNNNNNNNNNNy..",
-        "..yNNNNyyNNNNy..",
-        "..yNNNNyyNNNNy..",
-        "..yNNNNNNNNNNy..",
-        "..yyyyyyyyyyyy..",
-        "................",
-    ], scale=4)
+    custom_floor = os.path.join(ROOT, "assets", "tiles", "medieval_stone_floor_tile.png")
+    custom_door = os.path.join(ROOT, "assets", "tiles", "medieval_door_tile.png")
+    if not os.path.exists(custom_floor):
+        write_png(s("floor.png"), [
+            "dddddddddddddddd",
+            "dDDDDdDDDDdDDDDd",
+            "dD..DdD..DdD..Dd",
+            "dD..DdD..DdD..Dd",
+            "dddddddddddddddd",
+            "dDDdDDDDdDDDDdDd",
+            "dD.dD..DdD..DdDd",
+            "dDDdD..DdD..dDDd",
+            "dddddddddddddddd",
+            "dDDDDdDDDDdDDDDd",
+            "dD..DdD..DdD..Dd",
+            "dD..DdD..DdD..Dd",
+            "dddddddddddddddd",
+            "dDddddDddddDdddD",
+            "ddDddddDddddDddd",
+            "dddddddddddddddd",
+        ], scale=2)
+    if not os.path.exists(custom_door):
+        write_png(s("door.png"), [
+            "................",
+            ".....yyyyyy.....",
+            "...yyNNNNNNyy...",
+            "..yNNNNNNNNNNy..",
+            "..yNNKNNNNKNNy..",
+            "..yNNNNccNNNNy..",
+            "..yNNNNccNNNNy..",
+            "..yNNNNNNNNNNy..",
+            "..yNNNNyyNNNNy..",
+            "..yNNNNyyNNNNy..",
+            "..yNNNNNNNNNNy..",
+            "..yyyyyyyyyyyy..",
+            "................",
+        ], scale=4)
     write_png(s("gem.png"), [
         "................",
         "......cccc......",
