@@ -14,6 +14,8 @@ var hud: CanvasLayer
 var boss_panel: Control
 var boss_bar: ProgressBar
 var boss_name_label: Label
+var floor_node: Node2D
+var walls_node: Node2D
 var joystick_move: Control   # 手机：单摇杆控制移动
 var joystick_aim: Control    # 桌面兼容保留；手机不再创建右摇杆
 var _sfx: Node               # 音效管理器
@@ -135,8 +137,10 @@ func _ready() -> void:
 	rng.randomize()
 	_configure_room_rect()
 	_generate_dungeon()
-	add_child(_make_floor())
-	add_child(_make_room_walls())
+	floor_node = _make_floor()
+	add_child(floor_node)
+	walls_node = _make_room_walls()
+	add_child(walls_node)
 	gems.process_mode = Node.PROCESS_MODE_PAUSABLE
 	enemies.process_mode = Node.PROCESS_MODE_PAUSABLE
 	bullets.process_mode = Node.PROCESS_MODE_PAUSABLE
@@ -157,6 +161,7 @@ func _ready() -> void:
 	_apply_stats()
 	hud = _make_hud()
 	add_child(hud)
+	get_viewport().size_changed.connect(_on_viewport_size_changed)
 	var joy_layer := CanvasLayer.new()
 	joy_layer.layer = 10
 	joystick_move = JoystickScene.new()
@@ -181,6 +186,29 @@ func _configure_room_rect() -> void:
 		var room_height := maxf(416.0, vp_size.y - 124.0)
 		room_rect = Rect2(Vector2(64, 64), Vector2(room_width, room_height))
 
+func _on_viewport_size_changed() -> void:
+	var old_center := room_rect.get_center()
+	_configure_room_rect()
+	if floor_node != null:
+		floor_node.queue_free()
+	floor_node = _make_floor()
+	add_child(floor_node)
+	move_child(floor_node, 0)
+	if walls_node != null:
+		walls_node.queue_free()
+	walls_node = _make_room_walls()
+	add_child(walls_node)
+	move_child(walls_node, 1)
+	for direction in doors.keys():
+		_position_door(doors[direction], direction)
+	if player != null:
+		var offset := player.position - old_center
+		player.position = room_rect.get_center() + offset
+		_keep_player_inside_room()
+	if hud != null:
+		_layout_hud()
+	_set_doors_visible(room_cleared)
+
 func _physics_process(delta: float) -> void:
 	if paused_for_upgrade or game_over:
 		return
@@ -192,6 +220,7 @@ func _physics_process(delta: float) -> void:
 	player.joystick_direction = joystick_move.direction
 	_keep_player_inside_room()
 	_handle_shooting()
+	_check_door_transition()
 	if enemy_shoot_timer <= 0.0:
 		_fire_enemy_bullets()
 		var shoot_interval := 1.25
@@ -556,14 +585,9 @@ func _make_door(direction: Vector2i) -> Area2D:
 	var area := Area2D.new()
 	area.name = "NextRoomDoor"
 	area.set_meta("direction", direction)
-	if direction == Vector2i.RIGHT:
-		area.position = Vector2(room_rect.end.x + 1, room_rect.get_center().y)
-	elif direction == Vector2i.LEFT:
-		area.position = Vector2(room_rect.position.x - 1, room_rect.get_center().y)
-	elif direction == Vector2i.UP:
-		area.position = Vector2(room_rect.get_center().x, room_rect.position.y - 1)
-	else:
-		area.position = Vector2(room_rect.get_center().x, room_rect.end.y + 1)
+	_position_door(area, direction)
+	area.collision_layer = 4
+	area.collision_mask = 1
 	area.monitoring = true
 	area.visible = false
 	area.body_entered.connect(_on_door_body_entered.bind(direction))
@@ -578,6 +602,16 @@ func _make_door(direction: Vector2i) -> Area2D:
 	shape.shape = rect
 	area.add_child(shape)
 	return area
+
+func _position_door(area: Area2D, direction: Vector2i) -> void:
+	if direction == Vector2i.RIGHT:
+		area.position = Vector2(room_rect.end.x + 1, room_rect.get_center().y)
+	elif direction == Vector2i.LEFT:
+		area.position = Vector2(room_rect.position.x - 1, room_rect.get_center().y)
+	elif direction == Vector2i.UP:
+		area.position = Vector2(room_rect.get_center().x, room_rect.position.y - 1)
+	elif direction == Vector2i.DOWN:
+		area.position = Vector2(room_rect.get_center().x, room_rect.end.y + 1)
 
 func _load_room() -> void:
 	changing_room = false
@@ -843,19 +877,40 @@ func _set_doors_visible(open: bool) -> void:
 func _on_door_body_entered(body: Node2D, direction: Vector2i) -> void:
 	if body != player or not room_cleared or changing_room:
 		return
-	changing_room = true
 	if direction == Vector2i.ZERO:
 		return
+	_enter_door(direction)
+
+func _enter_door(direction: Vector2i) -> void:
+	if changing_room or not room_cleared or not dungeon.has(current_room + direction):
+		return
+	changing_room = true
 	current_room += direction
 	entry_direction = -direction
 	if not visited_rooms.has(current_room):
 		room_number += 1
 	call_deferred("_load_room")
 
+func _check_door_transition() -> void:
+	if not room_cleared or changing_room:
+		return
+	if player.position.x >= room_rect.end.x + 14.0:
+		_enter_door(Vector2i.RIGHT)
+	elif player.position.x <= room_rect.position.x - 14.0:
+		_enter_door(Vector2i.LEFT)
+	elif player.position.y <= room_rect.position.y - 14.0:
+		_enter_door(Vector2i.UP)
+	elif player.position.y >= room_rect.end.y + 14.0:
+		_enter_door(Vector2i.DOWN)
+
 func _keep_player_inside_room() -> void:
 	if room_cleared:
-		player.position.x = clamp(player.position.x, room_rect.position.x - 32, room_rect.end.x + 32)
-		player.position.y = clamp(player.position.y, room_rect.position.y - 32, room_rect.end.y + 32)
+		var left_limit := room_rect.position.x - 32.0 if dungeon.has(current_room + Vector2i.LEFT) else room_rect.position.x + 16.0
+		var right_limit := room_rect.end.x + 32.0 if dungeon.has(current_room + Vector2i.RIGHT) else room_rect.end.x - 16.0
+		var top_limit := room_rect.position.y - 32.0 if dungeon.has(current_room + Vector2i.UP) else room_rect.position.y + 16.0
+		var bottom_limit := room_rect.end.y + 32.0 if dungeon.has(current_room + Vector2i.DOWN) else room_rect.end.y - 16.0
+		player.position.x = clamp(player.position.x, left_limit, right_limit)
+		player.position.y = clamp(player.position.y, top_limit, bottom_limit)
 	else:
 		player.position.x = clamp(player.position.x, room_rect.position.x + 16, room_rect.end.x - 16)
 		player.position.y = clamp(player.position.y, room_rect.position.y + 16, room_rect.end.y - 16)
@@ -1011,7 +1066,24 @@ func _make_hud() -> CanvasLayer:
 	boss_box.add_child(boss_bar)
 	level_panel = _make_level_panel()
 	root.add_child(level_panel)
+	_layout_hud()
 	return layer
+
+func _layout_hud() -> void:
+	var vp_size := get_viewport_rect().size
+	var root := hud.get_node_or_null("HUDRoot") if hud != null else null
+	if root == null:
+		return
+	var stats_panel := root.get_node_or_null("StatsPanel") as PanelContainer
+	if stats_panel != null:
+		stats_panel.position = Vector2(10, 10)
+		stats_panel.size = Vector2(vp_size.x - 20, 82)
+	if boss_panel != null:
+		boss_panel.position = Vector2(18, 96)
+		boss_panel.size = Vector2(vp_size.x - 36, 58)
+		var boss_box := boss_panel.get_node_or_null("BossBox") as VBoxContainer
+		if boss_box != null:
+			boss_box.size = boss_panel.size - Vector2(24, 16)
 
 func _make_card_style(bg: Color, border: Color, border_width: int) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
