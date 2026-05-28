@@ -672,6 +672,30 @@ func _spawn_enemy_count(count: int, boss := false) -> void:
 	for i in range(count):
 		_spawn_enemy_in_room(boss)
 
+func _random_spawn_position(boss := false) -> Vector2:
+	var margin := 90.0 if boss else 58.0
+	var safe_from_player := minf(room_rect.size.length() * 0.42, 300.0) if boss else minf(room_rect.size.length() * 0.28, 190.0)
+	var min_enemy_gap := 150.0 if boss else 62.0
+	var fallback := room_rect.get_center()
+	var best := fallback
+	var best_score := -1.0
+	for attempt in range(36):
+		var candidate := Vector2(
+			rng.randf_range(room_rect.position.x + margin, room_rect.end.x - margin),
+			rng.randf_range(room_rect.position.y + margin, room_rect.end.y - margin)
+		)
+		var player_dist := candidate.distance_to(player.global_position)
+		var nearest_enemy := 9999.0
+		for existing in enemies.get_children():
+			nearest_enemy = minf(nearest_enemy, candidate.distance_to(existing.global_position))
+		var score := player_dist + nearest_enemy * 0.55
+		if score > best_score:
+			best_score = score
+			best = candidate
+		if player_dist >= safe_from_player and nearest_enemy >= min_enemy_gap:
+			return candidate
+	return best
+
 func _player_power_scale(for_boss := false) -> float:
 	var bullet_count: int = stats["bullet_count"]
 	var effective_bullets := 1.0 + float(maxi(0, bullet_count - 1)) * 0.72
@@ -697,12 +721,7 @@ func _player_power_scale(for_boss := false) -> float:
 
 func _spawn_enemy_in_room(boss := false) -> void:
 	var enemy := EnemyScene.new()
-	var spawn_margin_x := minf(180.0, room_rect.size.x * 0.32)
-	var spawn_margin_right := minf(80.0, room_rect.size.x * 0.18)
-	enemy.position = Vector2(
-		rng.randf_range(room_rect.position.x + spawn_margin_x, room_rect.end.x - spawn_margin_right),
-		rng.randf_range(room_rect.position.y + 70, room_rect.end.y - 70)
-	)
+	enemy.position = _random_spawn_position(boss)
 	enemy.target = player
 	if boss:
 		var archetype: int = boss_state.get("archetype_id", 0)
