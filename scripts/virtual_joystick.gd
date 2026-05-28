@@ -4,6 +4,7 @@ var direction := Vector2.ZERO
 var active := true
 var touching := false
 var right_side := false  # true = 右半屏捕获，false = 左半屏
+var capture_full_screen := false
 var fixed_position := true
 var idle_visible := true
 
@@ -43,7 +44,7 @@ func _input(event: InputEvent) -> void:
 		return
 	var vp_size: Vector2 = get_viewport_rect().size
 	if event is InputEventScreenTouch:
-		var on_correct_side: bool = (event.position.x >= vp_size.x * 0.5) == right_side
+		var on_correct_side: bool = capture_full_screen or (event.position.x >= vp_size.x * 0.5) == right_side
 		if event.pressed and _touch_index == -1 and on_correct_side:
 			_touch_index = event.index
 			touching = true
@@ -85,8 +86,11 @@ func _update_fixed_position() -> void:
 		return
 	var vp_size: Vector2 = get_viewport_rect().size
 	var margin_x := clampf(vp_size.x * 0.16, 118.0, 170.0)
-	var margin_y := clampf(vp_size.y * 0.24, 104.0, 142.0)
-	_base_pos = Vector2(vp_size.x - margin_x, vp_size.y - margin_y) if right_side else Vector2(margin_x, vp_size.y - margin_y)
+	var margin_y := clampf(vp_size.y * 0.15, 118.0, 156.0)
+	if capture_full_screen:
+		_base_pos = Vector2(vp_size.x * 0.5, vp_size.y - margin_y)
+	else:
+		_base_pos = Vector2(vp_size.x - margin_x, vp_size.y - margin_y) if right_side else Vector2(margin_x, vp_size.y - margin_y)
 	_base_panel.position = _base_pos - Vector2(64, 64)
 	_handle_panel.position = _base_pos - Vector2(32, 32)
 

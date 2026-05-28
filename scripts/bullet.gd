@@ -22,23 +22,23 @@ func _ready() -> void:
 		if damage >= 3:
 			outer_color = Color("#ff5500")   # 深橙红
 			inner_color = Color("#ffcc44")
-			bullet_scale = 1.25
-			hit_radius   = 6.5
+			bullet_scale = 1.7
+			hit_radius   = 8.5
 		elif damage >= 2:
 			outer_color = Color("#ffaa00")   # 橙黄
 			inner_color = Color("#ffee99")
-			bullet_scale = 1.05
-			hit_radius   = 5.5
+			bullet_scale = 1.45
+			hit_radius   = 7.5
 		else:
 			outer_color = Color("#ffd166")   # 默认黄
 			inner_color = Color("#fff7c2")
-			bullet_scale = 0.85
-			hit_radius   = 4.5
+			bullet_scale = 1.18
+			hit_radius   = 6.5
 	else:
 		outer_color = Color("#ff4d6d")
 		inner_color = Color("#ffd1dc")
-		bullet_scale = 0.9
-		hit_radius   = 5.0
+		bullet_scale = 1.15
+		hit_radius   = 6.0
 
 	var sprite := Sprite2D.new()
 	sprite.texture = _make_pixel_texture([

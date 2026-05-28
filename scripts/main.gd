@@ -11,8 +11,8 @@ const SfxPlayer   := preload("res://scripts/sfx_player.gd")
 
 var player: CharacterBody2D
 var hud: CanvasLayer
-var joystick_move: Control   # 左半屏：控制移动方向
-var joystick_aim: Control    # 右半屏：控制弹幕方向
+var joystick_move: Control   # 手机：单摇杆控制移动
+var joystick_aim: Control    # 桌面兼容保留；手机不再创建右摇杆
 var _sfx: Node               # 音效管理器
 var _is_touch_session := false
 var level_panel: Control
@@ -73,12 +73,14 @@ var _boss_concepts := [
 ]
 
 var _enemy_families := [
-	{"key": "skeleton", "min_floor": 1, "scale": 2.15, "mode": "auto", "speed": 66.0, "hp": 2},
-	{"key": "imp", "min_floor": 1, "scale": 1.95, "mode": "erratic", "speed": 108.0, "hp": 1},
-	{"key": "cultist", "min_floor": 2, "scale": 2.3, "mode": "retreat", "speed": 58.0, "hp": 3},
-	{"key": "spider", "min_floor": 2, "scale": 2.35, "mode": "orbit", "speed": 86.0, "hp": 2},
-	{"key": "zombie", "min_floor": 3, "scale": 2.55, "mode": "auto", "speed": 50.0, "hp": 5},
-	{"key": "mimic", "min_floor": 4, "scale": 2.75, "mode": "erratic", "speed": 78.0, "hp": 4},
+	{"key": "slime", "min_floor": 1, "scale": 0.72, "mode": "auto", "speed": 62.0, "hp": 2},
+	{"key": "bat", "min_floor": 1, "scale": 0.7, "mode": "auto", "speed": 104.0, "hp": 1},
+	{"key": "skeleton", "min_floor": 2, "scale": 2.45, "mode": "auto", "speed": 66.0, "hp": 3},
+	{"key": "imp", "min_floor": 2, "scale": 2.25, "mode": "erratic", "speed": 108.0, "hp": 2},
+	{"key": "cultist", "min_floor": 3, "scale": 2.55, "mode": "retreat", "speed": 58.0, "hp": 4},
+	{"key": "spider", "min_floor": 3, "scale": 2.65, "mode": "orbit", "speed": 86.0, "hp": 3},
+	{"key": "zombie", "min_floor": 4, "scale": 2.85, "mode": "auto", "speed": 50.0, "hp": 6},
+	{"key": "mimic", "min_floor": 4, "scale": 3.05, "mode": "erratic", "speed": 78.0, "hp": 5},
 ]
 
 var _dungeon_aspects := [
@@ -151,18 +153,25 @@ func _ready() -> void:
 	joy_layer.layer = 10
 	joystick_move = JoystickScene.new()
 	joystick_move.right_side = false
+	joystick_move.capture_full_screen = true
 	joy_layer.add_child(joystick_move)
-	joystick_aim = JoystickScene.new()
-	joystick_aim.right_side = true
-	joy_layer.add_child(joystick_aim)
 	add_child(joy_layer)
 	_load_room()
 
 func _configure_room_rect() -> void:
 	var vp_size := get_viewport_rect().size
-	var room_width := maxf(832.0, vp_size.x - 128.0)
-	var room_height := maxf(416.0, vp_size.y - 124.0)
-	room_rect = Rect2(Vector2(64, 64), Vector2(room_width, room_height))
+	if vp_size.y > vp_size.x:
+		var margin_x := 24.0
+		var top_margin := 72.0
+		var bottom_controls := 178.0
+		room_rect = Rect2(
+			Vector2(margin_x, top_margin),
+			Vector2(vp_size.x - margin_x * 2.0, vp_size.y - top_margin - bottom_controls)
+		)
+	else:
+		var room_width := maxf(832.0, vp_size.x - 128.0)
+		var room_height := maxf(416.0, vp_size.y - 124.0)
+		room_rect = Rect2(Vector2(64, 64), Vector2(room_width, room_height))
 
 func _physics_process(delta: float) -> void:
 	if paused_for_upgrade or game_over:
@@ -170,7 +179,7 @@ func _physics_process(delta: float) -> void:
 	game_time += delta
 	shoot_timer -= delta
 	enemy_shoot_timer -= delta
-	if joystick_move.touching or joystick_aim.touching:
+	if joystick_move.touching or (joystick_aim != null and joystick_aim.touching):
 		_is_touch_session = true
 	player.joystick_direction = joystick_move.direction
 	_keep_player_inside_room()
@@ -191,12 +200,13 @@ func _handle_shooting() -> void:
 	if shoot_timer > 0.0:
 		return
 	var direction: Vector2
-	if joystick_aim.direction != Vector2.ZERO:
+	if joystick_aim != null and joystick_aim.direction != Vector2.ZERO:
 		# 右摇杆主动推出：按摇杆方向射击
 		direction = joystick_aim.direction
 	elif _is_touch_session:
-		# 触屏模式下，右摇杆就是弹幕控制；不推右摇杆就不射击。
-		return
+		direction = _nearest_enemy_direction()
+		if direction == Vector2.ZERO:
+			direction = joystick_move.direction
 	else:
 		# 桌面鼠标瞄准
 		direction = player.global_position.direction_to(get_global_mouse_position())
@@ -557,8 +567,10 @@ func _spawn_enemy_count(count: int, boss := false) -> void:
 
 func _spawn_enemy_in_room(boss := false) -> void:
 	var enemy := EnemyScene.new()
+	var spawn_margin_x := minf(180.0, room_rect.size.x * 0.32)
+	var spawn_margin_right := minf(80.0, room_rect.size.x * 0.18)
 	enemy.position = Vector2(
-		rng.randf_range(room_rect.position.x + 180, room_rect.end.x - 80),
+		rng.randf_range(room_rect.position.x + spawn_margin_x, room_rect.end.x - spawn_margin_right),
 		rng.randf_range(room_rect.position.y + 70, room_rect.end.y - 70)
 	)
 	enemy.target = player
@@ -606,7 +618,7 @@ func _spawn_enemy_in_room(boss := false) -> void:
 		var family: Dictionary = pool[rng.randi() % pool.size()]
 		var aspect: Dictionary = _dungeon_aspects[rng.randi() % _dungeon_aspects.size()]
 		enemy.enemy_type = family["key"]
-		enemy.animal_concept = family["key"]
+		enemy.animal_concept = "" if family["key"] == "slime" or family["key"] == "bat" else family["key"]
 		enemy.movement_mode = family["mode"]
 		enemy.visual_scale = family["scale"]
 		enemy.archetype_color = aspect["outer"]
@@ -762,7 +774,8 @@ func _show_upgrade_choices() -> void:
 	paused_for_upgrade = true
 	get_tree().paused = true
 	joystick_move.set_active(false)
-	joystick_aim.set_active(false)
+	if joystick_aim != null:
+		joystick_aim.set_active(false)
 	level_panel.visible = true
 	current_upgrade_keys.clear()
 	var choices_box: HBoxContainer = level_panel.get_node("Panel/Content/Choices")
@@ -811,7 +824,8 @@ func _choose_upgrade(key: String) -> void:
 	get_tree().paused = false
 	paused_for_upgrade = false
 	joystick_move.set_active(true)
-	joystick_aim.set_active(true)
+	if joystick_aim != null:
+		joystick_aim.set_active(true)
 
 func _apply_stats() -> void:
 	if player == null:
@@ -931,7 +945,8 @@ func _on_player_died() -> void:
 	game_over = true
 	get_tree().paused = true
 	joystick_move.set_active(false)
-	joystick_aim.set_active(false)
+	if joystick_aim != null:
+		joystick_aim.set_active(false)
 	var overlay := Control.new()
 	overlay.name = "GameOverPanel"
 	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)

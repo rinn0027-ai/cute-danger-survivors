@@ -44,7 +44,7 @@ func _ready() -> void:
 	center.add_child(spacer)
 
 	var controls := Label.new()
-	controls.text = "📱 Mobile  Left stick = Move · Right stick = Aim & Fire\n⌨️  Desktop  WASD / Arrows = Move · Mouse = Aim · Auto fire\nDefeat enemies · Level up · Choose upgrades · Beat the Boss"
+	controls.text = "Mobile  Stick = Move · Auto aim & fire\nDesktop  WASD / Arrows = Move · Mouse = Aim · Auto fire\nDefeat enemies · Level up · Choose upgrades · Beat the Boss"
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	controls.add_theme_font_size_override("font_size", 18)
 	controls.modulate = Color("#99aabb")
@@ -88,7 +88,7 @@ func _request_mobile_fullscreen() -> void:
 				root.requestFullscreen().catch(() => {});
 			}
 			if (screen.orientation && screen.orientation.lock) {
-				screen.orientation.lock('landscape').catch(() => {});
+				screen.orientation.lock('portrait').catch(() => {});
 			}
 			document.body.style.overflow = 'hidden';
 			document.documentElement.style.overflow = 'hidden';
