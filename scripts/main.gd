@@ -1042,20 +1042,77 @@ func _make_hud() -> CanvasLayer:
 	var stats_panel := PanelContainer.new()
 	stats_panel.name = "StatsPanel"
 	stats_panel.position = Vector2(10, 10)
-	stats_panel.size = Vector2(get_viewport_rect().size.x - 20, 82)
+	stats_panel.size = Vector2(get_viewport_rect().size.x - 20, 94)
 	stats_panel.add_theme_stylebox_override("panel", _make_card_style(Color("#17131f"), Color("#d8c48a"), 3))
 	root.add_child(stats_panel)
-	var stats_label := Label.new()
-	stats_label.name = "Stats"
-	stats_label.add_theme_font_size_override("font_size", 15)
-	stats_label.add_theme_color_override("font_color", Color("#f7f0d8"))
-	stats_label.add_theme_color_override("font_outline_color", Color("#10131f"))
-	stats_label.add_theme_constant_override("outline_size", 3)
-	stats_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	stats_panel.add_child(stats_label)
+	var hud_box := VBoxContainer.new()
+	hud_box.name = "HudBox"
+	hud_box.size = stats_panel.size - Vector2(24, 16)
+	hud_box.add_theme_constant_override("separation", 6)
+	stats_panel.add_child(hud_box)
+	var top_row := HBoxContainer.new()
+	top_row.name = "TopRow"
+	top_row.add_theme_constant_override("separation", 8)
+	hud_box.add_child(top_row)
+	var hearts := HBoxContainer.new()
+	hearts.name = "Hearts"
+	hearts.custom_minimum_size = Vector2(150, 28)
+	hearts.add_theme_constant_override("separation", 2)
+	hearts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top_row.add_child(hearts)
+	var room_label := Label.new()
+	room_label.name = "RoomInfo"
+	room_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	room_label.add_theme_font_size_override("font_size", 15)
+	room_label.add_theme_color_override("font_color", Color("#ffd464"))
+	room_label.add_theme_color_override("font_outline_color", Color("#10131f"))
+	room_label.add_theme_constant_override("outline_size", 3)
+	room_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top_row.add_child(room_label)
+	var level_label := Label.new()
+	level_label.name = "LevelInfo"
+	level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	level_label.add_theme_font_size_override("font_size", 15)
+	level_label.add_theme_color_override("font_color", Color("#78ffe1"))
+	level_label.add_theme_color_override("font_outline_color", Color("#10131f"))
+	level_label.add_theme_constant_override("outline_size", 3)
+	level_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top_row.add_child(level_label)
+	var bottom_row := HBoxContainer.new()
+	bottom_row.name = "BottomRow"
+	bottom_row.add_theme_constant_override("separation", 8)
+	hud_box.add_child(bottom_row)
+	var xp_bar := ProgressBar.new()
+	xp_bar.name = "XPBar"
+	xp_bar.min_value = 0
+	xp_bar.max_value = 100
+	xp_bar.value = 0
+	xp_bar.show_percentage = false
+	xp_bar.custom_minimum_size = Vector2(170, 18)
+	xp_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	xp_bar.add_theme_stylebox_override("background", _make_card_style(Color("#242a3a"), Color("#10131f"), 2))
+	xp_bar.add_theme_stylebox_override("fill", _make_card_style(Color("#5fc7e8"), Color("#5fc7e8"), 0))
+	bottom_row.add_child(xp_bar)
+	var xp_label := Label.new()
+	xp_label.name = "XPInfo"
+	xp_label.add_theme_font_size_override("font_size", 13)
+	xp_label.add_theme_color_override("font_color", Color("#cfefff"))
+	xp_label.add_theme_color_override("font_outline_color", Color("#10131f"))
+	xp_label.add_theme_constant_override("outline_size", 2)
+	xp_label.custom_minimum_size = Vector2(74, 18)
+	bottom_row.add_child(xp_label)
+	var state_label := Label.new()
+	state_label.name = "StateInfo"
+	state_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	state_label.add_theme_font_size_override("font_size", 13)
+	state_label.add_theme_color_override("font_color", Color("#f7f0d8"))
+	state_label.add_theme_color_override("font_outline_color", Color("#10131f"))
+	state_label.add_theme_constant_override("outline_size", 2)
+	state_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bottom_row.add_child(state_label)
 	boss_panel = PanelContainer.new()
 	boss_panel.name = "BossPanel"
-	boss_panel.position = Vector2(18, 96)
+	boss_panel.position = Vector2(18, 112)
 	boss_panel.size = Vector2(get_viewport_rect().size.x - 36, 58)
 	boss_panel.visible = false
 	boss_panel.add_theme_stylebox_override("panel", _make_card_style(Color("#241521"), Color("#ff6f7d"), 3))
@@ -1097,9 +1154,12 @@ func _layout_hud() -> void:
 	var stats_panel := root.get_node_or_null("StatsPanel") as PanelContainer
 	if stats_panel != null:
 		stats_panel.position = Vector2(10, 10)
-		stats_panel.size = Vector2(vp_size.x - 20, 82)
+		stats_panel.size = Vector2(vp_size.x - 20, 94)
+		var hud_box := stats_panel.get_node_or_null("HudBox") as VBoxContainer
+		if hud_box != null:
+			hud_box.size = stats_panel.size - Vector2(24, 16)
 	if boss_panel != null:
-		boss_panel.position = Vector2(18, 96)
+		boss_panel.position = Vector2(18, 112)
 		boss_panel.size = Vector2(vp_size.x - 36, 58)
 		var boss_box := boss_panel.get_node_or_null("BossBox") as VBoxContainer
 		if boss_box != null:
@@ -1166,22 +1226,68 @@ func _make_level_panel() -> Control:
 	return shade
 
 func _update_hud() -> void:
-	var stats_label: Label = hud.get_node("HUDRoot/StatsPanel/Stats")
-	var door_text := "Door Open" if room_cleared else "Clear Room"
-	stats_label.text = "F%d  R%d  %s  |  HP %d/%d\nLV %d  XP %d/%d  Kills %d\n%s  |  %s" % [
-		floor_number,
-		room_number,
-		_room_type_name(dungeon.get(current_room, "normal")),
-		player.health,
-		player.max_health,
-		level,
-		xp,
-		xp_to_next,
-		kills,
-		door_text,
-		_minimap_summary()
+	var root := hud.get_node("HUDRoot/StatsPanel/HudBox")
+	_update_hearts(root.get_node("TopRow/Hearts"))
+	var room_label: Label = root.get_node("TopRow/RoomInfo")
+	room_label.text = "F%d  R%d  %s" % [
+		floor_number, room_number, _room_type_name(dungeon.get(current_room, "normal"))
 	]
+	var level_label: Label = root.get_node("TopRow/LevelInfo")
+	level_label.text = "LV %d" % level
+	var xp_bar: ProgressBar = root.get_node("BottomRow/XPBar")
+	xp_bar.max_value = xp_to_next
+	xp_bar.value = xp
+	var xp_label: Label = root.get_node("BottomRow/XPInfo")
+	xp_label.text = "XP %d/%d" % [xp, xp_to_next]
+	var state_label: Label = root.get_node("BottomRow/StateInfo")
+	var door_text := "OPEN" if room_cleared else "LOCKED"
+	state_label.text = "%s  K %d" % [door_text, kills]
 	_update_boss_bar()
+
+func _update_hearts(hearts: HBoxContainer) -> void:
+	for child in hearts.get_children():
+		child.queue_free()
+	var max_units := int(ceil(float(player.max_health) / 2.0))
+	var full_units := int(player.health / 2)
+	var has_half := player.health % 2 == 1
+	var shown_units := mini(max_units, 10)
+	for i in range(shown_units):
+		var heart := TextureRect.new()
+		heart.texture = _make_heart_texture("full" if i < full_units else "half" if i == full_units and has_half else "empty")
+		heart.custom_minimum_size = Vector2(22, 22)
+		heart.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
+		heart.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		hearts.add_child(heart)
+	if max_units > shown_units:
+		var extra := Label.new()
+		extra.text = "+%d" % (max_units - shown_units)
+		extra.add_theme_font_size_override("font_size", 12)
+		extra.add_theme_color_override("font_color", Color("#ffd1dc"))
+		extra.add_theme_color_override("font_outline_color", Color("#10131f"))
+		extra.add_theme_constant_override("outline_size", 2)
+		hearts.add_child(extra)
+
+func _make_heart_texture(state: String) -> Texture2D:
+	var red := Color("#ff4d6d")
+	var dark := Color("#4a2530")
+	var shine := Color("#fff0f0")
+	var empty := Color("#2d2631")
+	var fill := red if state == "full" else dark if state == "half" else empty
+	var right := red if state == "full" else empty
+	return _make_pixel_texture([
+		"................",
+		"...oo....oo.....",
+		"..oAAo..oBBo....",
+		".oAAAAooBBBBo...",
+		".oAAAAAABBBBo...",
+		"..oAAAABBBBo....",
+		"...oAABBBBo.....",
+		"....oABBBo......",
+		".....oBBo.......",
+		"......oo........",
+		"................",
+		"................"
+	], {"o": Color("#10131f"), "A": fill, "B": right, "s": shine})
 
 func _update_boss_bar() -> void:
 	if boss_panel == null:
