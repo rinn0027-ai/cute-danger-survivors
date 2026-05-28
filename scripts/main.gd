@@ -592,8 +592,9 @@ func _make_door(direction: Vector2i) -> Area2D:
 	area.visible = false
 	area.body_entered.connect(_on_door_body_entered.bind(direction))
 	var door_sprite := Sprite2D.new()
-	door_sprite.texture = _load_png_texture("res://assets/sprites/door.png")
-	if direction == Vector2i.UP or direction == Vector2i.DOWN:
+	door_sprite.name = "DoorSprite"
+	door_sprite.texture = _load_png_texture("res://assets/sprites/door_topdown.png")
+	if direction == Vector2i.LEFT or direction == Vector2i.RIGHT:
 		door_sprite.rotation_degrees = 90
 	area.add_child(door_sprite)
 	var shape := CollisionShape2D.new()
@@ -605,13 +606,13 @@ func _make_door(direction: Vector2i) -> Area2D:
 
 func _position_door(area: Area2D, direction: Vector2i) -> void:
 	if direction == Vector2i.RIGHT:
-		area.position = Vector2(room_rect.end.x + 1, room_rect.get_center().y)
+		area.position = Vector2(room_rect.end.x - 10, room_rect.get_center().y)
 	elif direction == Vector2i.LEFT:
-		area.position = Vector2(room_rect.position.x - 1, room_rect.get_center().y)
+		area.position = Vector2(room_rect.position.x + 10, room_rect.get_center().y)
 	elif direction == Vector2i.UP:
-		area.position = Vector2(room_rect.get_center().x, room_rect.position.y - 1)
+		area.position = Vector2(room_rect.get_center().x, room_rect.position.y + 10)
 	elif direction == Vector2i.DOWN:
-		area.position = Vector2(room_rect.get_center().x, room_rect.end.y + 1)
+		area.position = Vector2(room_rect.get_center().x, room_rect.end.y - 10)
 
 func _load_room() -> void:
 	changing_room = false

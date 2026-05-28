@@ -148,6 +148,7 @@ def main():
     ], scale=4)
     custom_floor = os.path.join(ROOT, "assets", "tiles", "medieval_stone_floor_tile.png")
     custom_door = os.path.join(ROOT, "assets", "tiles", "medieval_door_tile.png")
+    custom_topdown_door = os.path.join(ROOT, "assets", "tiles", "medieval_door_topdown_tile.png")
     if not os.path.exists(custom_floor):
         write_png(s("floor.png"), [
             "dddddddddddddddd",
@@ -183,6 +184,17 @@ def main():
             "..yyyyyyyyyyyy..",
             "................",
         ], scale=4)
+    if not os.path.exists(custom_topdown_door):
+        write_png(s("door_topdown.png"), [
+            "................",
+            "...yyyyyyyyyy...",
+            "..yNNNNNNNNNNy..",
+            ".yNNNccccNNNNy.",
+            ".yNNNccccNNNNy.",
+            "..yNNNNNNNNNNy..",
+            "...yyyyyyyyyy...",
+            "................",
+        ], scale=6)
     write_png(s("gem.png"), [
         "................",
         "......cccc......",
