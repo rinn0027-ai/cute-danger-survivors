@@ -162,7 +162,7 @@ func _configure_room_rect() -> void:
 	var vp_size := get_viewport_rect().size
 	if vp_size.y > vp_size.x:
 		var margin_x := 24.0
-		var top_margin := 72.0
+		var top_margin := 106.0
 		var bottom_controls := 178.0
 		room_rect = Rect2(
 			Vector2(margin_x, top_margin),

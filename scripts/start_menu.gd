@@ -14,22 +14,26 @@ func _ready() -> void:
 	add_child(bg)
 
 	var center := VBoxContainer.new()
-	center.anchor_left = 0.5
-	center.anchor_right = 0.5
+	center.anchor_left = 0.06
+	center.anchor_right = 0.94
 	center.anchor_top = 0.5
 	center.anchor_bottom = 0.5
-	center.offset_left = -320
-	center.offset_right = 320
+	center.offset_left = 0
+	center.offset_right = 0
 	center.offset_top = -220
 	center.offset_bottom = 220
 	center.alignment = BoxContainer.ALIGNMENT_CENTER
-	center.add_theme_constant_override("separation", 22)
+	center.add_theme_constant_override("separation", 18)
 	add_child(center)
 
 	var title := Label.new()
 	title.text = "Cute Danger Survivors"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 52)
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title.add_theme_font_size_override("font_size", 38)
+	title.add_theme_color_override("font_color", Color("#ffd464"))
+	title.add_theme_color_override("font_outline_color", Color("#10131f"))
+	title.add_theme_constant_override("outline_size", 4)
 	center.add_child(title)
 
 	var subtitle := Label.new()
@@ -46,7 +50,8 @@ func _ready() -> void:
 	var controls := Label.new()
 	controls.text = "Mobile  Stick = Move · Auto aim & fire\nDesktop  WASD / Arrows = Move · Mouse = Aim · Auto fire\nDefeat enemies · Level up · Choose upgrades · Beat the Boss"
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	controls.add_theme_font_size_override("font_size", 18)
+	controls.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	controls.add_theme_font_size_override("font_size", 15)
 	controls.modulate = Color("#99aabb")
 	center.add_child(controls)
 
