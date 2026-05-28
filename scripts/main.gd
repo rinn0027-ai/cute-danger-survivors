@@ -778,7 +778,7 @@ func _show_upgrade_choices() -> void:
 		joystick_aim.set_active(false)
 	level_panel.visible = true
 	current_upgrade_keys.clear()
-	var choices_box: HBoxContainer = level_panel.get_node("Panel/Content/Choices")
+	var choices_box: BoxContainer = level_panel.get_node("Panel/Content/Choices")
 	for child in choices_box.get_children():
 		child.queue_free()
 	var choices := [
@@ -800,9 +800,13 @@ func _show_upgrade_choices() -> void:
 		button.expand_icon = true
 		button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		button.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
-		button.custom_minimum_size = Vector2(220, 132)
+		button.custom_minimum_size = Vector2(0, 112)
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		button.add_theme_font_size_override("font_size", 16)
+		button.add_theme_stylebox_override("normal", _make_card_style(Color("#252134"), Color("#8b6f3a"), 3))
+		button.add_theme_stylebox_override("hover", _make_card_style(Color("#302a42"), Color("#ffd464"), 3))
+		button.add_theme_stylebox_override("pressed", _make_card_style(Color("#17131f"), Color("#78ffe1"), 3))
 		button.pressed.connect(_choose_upgrade.bind(choice["key"]))
 		choices_box.add_child(button)
 
@@ -840,14 +844,35 @@ func _make_hud() -> CanvasLayer:
 	root.name = "HUDRoot"
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	layer.add_child(root)
+	var stats_panel := PanelContainer.new()
+	stats_panel.name = "StatsPanel"
+	stats_panel.position = Vector2(10, 10)
+	stats_panel.size = Vector2(get_viewport_rect().size.x - 20, 82)
+	stats_panel.add_theme_stylebox_override("panel", _make_card_style(Color("#17131f"), Color("#d8c48a"), 3))
+	root.add_child(stats_panel)
 	var stats_label := Label.new()
 	stats_label.name = "Stats"
-	stats_label.position = Vector2(16, 12)
-	stats_label.add_theme_font_size_override("font_size", 18)
-	root.add_child(stats_label)
+	stats_label.add_theme_font_size_override("font_size", 15)
+	stats_label.add_theme_color_override("font_color", Color("#f7f0d8"))
+	stats_label.add_theme_color_override("font_outline_color", Color("#10131f"))
+	stats_label.add_theme_constant_override("outline_size", 3)
+	stats_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	stats_panel.add_child(stats_label)
 	level_panel = _make_level_panel()
 	root.add_child(level_panel)
 	return layer
+
+func _make_card_style(bg: Color, border: Color, border_width: int) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = bg
+	style.border_color = border
+	style.set_border_width_all(border_width)
+	style.set_corner_radius_all(0)
+	style.content_margin_left = 12
+	style.content_margin_right = 12
+	style.content_margin_top = 8
+	style.content_margin_bottom = 8
+	return style
 
 func _make_level_panel() -> Control:
 	var shade := Control.new()
@@ -862,50 +887,55 @@ func _make_level_panel() -> Control:
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	shade.add_child(dim)
+	var vp_size := get_viewport_rect().size
 	var panel := PanelContainer.new()
 	panel.name = "Panel"
-	panel.position = Vector2(90, 118)
-	panel.size = Vector2(780, 300)
-	panel.custom_minimum_size = Vector2(780, 300)
+	panel.size = Vector2(minf(500.0, vp_size.x - 28.0), minf(620.0, vp_size.y - 170.0))
+	panel.position = (vp_size - panel.size) * 0.5
+	panel.custom_minimum_size = panel.size
 	panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	panel.add_theme_stylebox_override("panel", _make_card_style(Color("#1b1827"), Color("#d8c48a"), 4))
 	shade.add_child(panel)
 	var box := VBoxContainer.new()
 	box.name = "Content"
-	box.size = Vector2(760, 280)
-	box.add_theme_constant_override("separation", 14)
+	box.size = panel.size - Vector2(24, 22)
+	box.add_theme_constant_override("separation", 10)
 	panel.add_child(box)
 	var title := Label.new()
-	title.text = "Level Up! Choose 1 upgrade"
+	title.text = "LEVEL UP"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 28)
+	title.add_theme_font_size_override("font_size", 30)
+	title.add_theme_color_override("font_color", Color("#ffd464"))
+	title.add_theme_color_override("font_outline_color", Color("#10131f"))
+	title.add_theme_constant_override("outline_size", 4)
 	box.add_child(title)
 	var hint := Label.new()
-	hint.text = "Tap a button, or press 1 / 2 / 3"
+	hint.text = "Choose one card"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.add_theme_font_size_override("font_size", 16)
+	hint.add_theme_color_override("font_color", Color("#cfc6a0"))
 	box.add_child(hint)
-	var choices := HBoxContainer.new()
+	var choices := VBoxContainer.new()
 	choices.name = "Choices"
 	choices.alignment = BoxContainer.ALIGNMENT_CENTER
-	choices.add_theme_constant_override("separation", 14)
+	choices.add_theme_constant_override("separation", 10)
 	box.add_child(choices)
 	return shade
 
 func _update_hud() -> void:
-	var stats_label: Label = hud.get_node("HUDRoot/Stats")
+	var stats_label: Label = hud.get_node("HUDRoot/StatsPanel/Stats")
 	var door_text := "Door Open" if room_cleared else "Clear Room"
-	stats_label.text = "Floor %d  Room %d  %s  %s  HP %d/%d  LV %d  XP %d/%d  Kills %d  Items %s  Map %s" % [
+	stats_label.text = "F%d  R%d  %s  |  HP %d/%d\nLV %d  XP %d/%d  Kills %d\n%s  |  %s" % [
 		floor_number,
 		room_number,
 		_room_type_name(dungeon.get(current_room, "normal")),
-		door_text,
 		player.health,
 		player.max_health,
 		level,
 		xp,
 		xp_to_next,
 		kills,
-		_item_summary(),
+		door_text,
 		_minimap_summary()
 	]
 
@@ -957,19 +987,24 @@ func _on_player_died() -> void:
 	dim.color = Color(0.06, 0.02, 0.04, 0.82)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	overlay.add_child(dim)
+	var vp_size := get_viewport_rect().size
 	var panel := PanelContainer.new()
-	panel.position = Vector2(250, 145)
-	panel.size = Vector2(460, 250)
+	panel.size = Vector2(minf(460.0, vp_size.x - 36.0), 270)
+	panel.position = (vp_size - panel.size) * 0.5
 	panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	panel.add_theme_stylebox_override("panel", _make_card_style(Color("#1b1827"), Color("#d8c48a"), 4))
 	overlay.add_child(panel)
 	var box := VBoxContainer.new()
-	box.size = Vector2(440, 230)
+	box.size = panel.size - Vector2(24, 22)
 	box.add_theme_constant_override("separation", 16)
 	panel.add_child(box)
 	var title := Label.new()
 	title.text = "GAME OVER"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 42)
+	title.add_theme_color_override("font_color", Color("#ff6f7d"))
+	title.add_theme_color_override("font_outline_color", Color("#10131f"))
+	title.add_theme_constant_override("outline_size", 4)
 	box.add_child(title)
 	var detail := Label.new()
 	detail.text = "You touched enemies too long\nRoom: %d   Kills: %d" % [room_number, kills]
@@ -980,6 +1015,9 @@ func _on_player_died() -> void:
 	restart.text = "Restart"
 	restart.custom_minimum_size = Vector2(240, 58)
 	restart.process_mode = Node.PROCESS_MODE_ALWAYS
+	restart.add_theme_stylebox_override("normal", _make_card_style(Color("#252134"), Color("#8b6f3a"), 3))
+	restart.add_theme_stylebox_override("hover", _make_card_style(Color("#302a42"), Color("#ffd464"), 3))
+	restart.add_theme_stylebox_override("pressed", _make_card_style(Color("#17131f"), Color("#78ffe1"), 3))
 	restart.pressed.connect(_restart_game)
 	box.add_child(restart)
 	hud.get_node("HUDRoot").add_child(overlay)
