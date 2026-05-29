@@ -11,6 +11,7 @@ const SfxPlayer   := preload("res://scripts/sfx_player.gd")
 const UI_FONT_PATH := "res://assets/fonts/GameFont.otf"
 const DUNGEON_MIN_ROOMS := 7
 const DUNGEON_MAX_ATTEMPTS := 24
+const DUNGEON_MIN_BOSS_STEPS := 5
 
 var player: CharacterBody2D
 var hud: CanvasLayer
@@ -685,27 +686,68 @@ func _build_dungeon_layout(target_rooms: int) -> void:
 	current_room = Vector2i.ZERO
 	entry_direction = Vector2i.ZERO
 	dungeon[current_room] = "start"
+	var boss_steps := clampi(DUNGEON_MIN_BOSS_STEPS + int(floor_number / 4), DUNGEON_MIN_BOSS_STEPS, target_rooms - 1)
+	var main_path := _make_main_path(boss_steps)
+	if main_path.size() < boss_steps + 1:
+		return
+	for index in range(1, main_path.size() - 1):
+		dungeon[main_path[index]] = "normal"
+	boss_room = main_path.back()
+	dungeon[boss_room] = "boss"
+	_add_branch_rooms(target_rooms)
+	_assign_special_rooms()
+
+func _make_main_path(step_count: int) -> Array:
 	var directions := [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.UP, Vector2i.DOWN]
-	var cursor := Vector2i.ZERO
-	var last_dir := Vector2i.ZERO
-	var boss_distance := mini(target_rooms - 2, 4 + int(floor_number / 3))
-	for step in range(boss_distance):
-		var next_dir := _random_growth_direction(cursor, directions, last_dir)
-		if next_dir == Vector2i.ZERO:
-			break
-		cursor += next_dir
-		last_dir = next_dir
-		dungeon[cursor] = "normal"
+	for attempt in range(80):
+		var path: Array[Vector2i] = [Vector2i.ZERO]
+		var cursor := Vector2i.ZERO
+		var previous_dir := Vector2i.ZERO
+		for step in range(step_count):
+			var options: Array[Vector2i] = []
+			for direction in directions:
+				if previous_dir != Vector2i.ZERO and direction == -previous_dir:
+					continue
+				var candidate: Vector2i = cursor + direction
+				if path.has(candidate):
+					continue
+				if _touches_existing_path(candidate, path, cursor):
+					continue
+				if abs(candidate.x) + abs(candidate.y) > 8:
+					continue
+				options.append(direction)
+			if options.is_empty():
+				break
+			options.shuffle()
+			var chosen: Vector2i = options[0]
+			cursor += chosen
+			previous_dir = chosen
+			path.append(cursor)
+		if path.size() == step_count + 1:
+			return path
+	return []
+
+func _touches_existing_path(candidate: Vector2i, path: Array[Vector2i], previous_room: Vector2i) -> bool:
+	for path_room in path:
+		if path_room == previous_room:
+			continue
+		if abs(candidate.x - path_room.x) + abs(candidate.y - path_room.y) == 1:
+			return true
+	return false
+
+func _add_branch_rooms(target_rooms: int) -> void:
+	var directions := [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.UP, Vector2i.DOWN]
 	var tries := 0
-	while dungeon.size() < target_rooms and tries < target_rooms * 120:
+	while dungeon.size() < target_rooms and tries < target_rooms * 180:
 		tries += 1
 		var rooms: Array = dungeon.keys()
 		var base: Vector2i = rooms[rng.randi_range(0, rooms.size() - 1)]
+		if base == boss_room:
+			continue
 		var next_dir := _random_growth_direction(base, directions, Vector2i.ZERO)
 		if next_dir == Vector2i.ZERO:
 			continue
 		dungeon[base + next_dir] = "normal"
-	_assign_special_rooms()
 
 func _random_growth_direction(base: Vector2i, directions: Array, previous_dir: Vector2i) -> Vector2i:
 	var shuffled_dirs := directions.duplicate()
@@ -741,6 +783,7 @@ func _build_fallback_dungeon(target_rooms: int) -> void:
 		if dungeon.has(cursor):
 			cursor += Vector2i.DOWN
 		dungeon[cursor] = "normal"
+	boss_room = cursor
 	_assign_special_rooms()
 
 func _build_line_dungeon(target_rooms: int) -> void:
@@ -752,6 +795,7 @@ func _build_line_dungeon(target_rooms: int) -> void:
 	dungeon[current_room] = "start"
 	for x in range(1, target_rooms):
 		dungeon[Vector2i(x, 0)] = "normal"
+	boss_room = Vector2i(target_rooms - 1, 0)
 	_assign_special_rooms()
 
 func _repair_dungeon_if_needed() -> void:
@@ -759,17 +803,36 @@ func _repair_dungeon_if_needed() -> void:
 	if _is_valid_dungeon(target_rooms):
 		return
 	_generate_dungeon()
+	_reset_to_floor_start()
+
+func _reset_to_floor_start() -> void:
+	current_room = Vector2i.ZERO
+	entry_direction = Vector2i.ZERO
+	room_number = 1
+
+func _room_exit_count(room: Vector2i) -> int:
+	var count := 0
+	for direction in [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.UP, Vector2i.DOWN]:
+		if dungeon.has(room + direction):
+			count += 1
+	return count
 
 func _assign_special_rooms() -> void:
-	var farthest := Vector2i.ZERO
-	var farthest_dist := -1
+	if boss_room == Vector2i.ZERO or not dungeon.has(boss_room):
+		var farthest := Vector2i.ZERO
+		var farthest_dist := -1
+		for room_pos in dungeon.keys():
+			if room_pos == Vector2i.ZERO:
+				continue
+			var dist: int = abs(room_pos.x) + abs(room_pos.y)
+			if dist > farthest_dist:
+				farthest_dist = dist
+				farthest = room_pos
+		boss_room = farthest
 	for room_pos in dungeon.keys():
-		var dist: int = abs(room_pos.x) + abs(room_pos.y)
-		if dist > farthest_dist:
-			farthest_dist = dist
-			farthest = room_pos
-	dungeon[farthest] = "boss"
-	boss_room = farthest
+		if room_pos != boss_room and dungeon[room_pos] == "boss":
+			dungeon[room_pos] = "normal"
+	dungeon[boss_room] = "boss"
 	var candidates: Array = dungeon.keys().filter(func(room_pos: Vector2i) -> bool:
 		return room_pos != Vector2i.ZERO and dungeon[room_pos] == "normal"
 	)
@@ -786,6 +849,15 @@ func _is_valid_dungeon(target_rooms: int) -> bool:
 		return false
 	if boss_room == Vector2i.ZERO or not dungeon.has(boss_room) or dungeon[boss_room] != "boss":
 		return false
+	var boss_count := 0
+	for room_pos in dungeon.keys():
+		if dungeon[room_pos] == "boss":
+			boss_count += 1
+	if boss_count != 1:
+		return false
+	var boss_steps := _shortest_room_distance(Vector2i.ZERO, boss_room)
+	if boss_steps < mini(DUNGEON_MIN_BOSS_STEPS, target_rooms - 1):
+		return false
 	return _reachable_room_count() == dungeon.size()
 
 func _reachable_room_count() -> int:
@@ -800,6 +872,27 @@ func _reachable_room_count() -> int:
 				seen[neighbor] = true
 				queue.append(neighbor)
 	return seen.size()
+
+func _shortest_room_distance(from_room: Vector2i, to_room: Vector2i) -> int:
+	if from_room == to_room:
+		return 0
+	var seen := {from_room: true}
+	var distances := {from_room: 0}
+	var queue := [from_room]
+	var directions := [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.UP, Vector2i.DOWN]
+	while not queue.is_empty():
+		var room: Vector2i = queue.pop_front()
+		var next_distance: int = distances[room] + 1
+		for direction in directions:
+			var neighbor: Vector2i = room + direction
+			if not dungeon.has(neighbor) or seen.has(neighbor):
+				continue
+			if neighbor == to_room:
+				return next_distance
+			seen[neighbor] = true
+			distances[neighbor] = next_distance
+			queue.append(neighbor)
+	return -1
 
 func _make_door(direction: Vector2i) -> Area2D:
 	var area := Area2D.new()
@@ -836,6 +929,11 @@ func _position_door(area: Area2D, direction: Vector2i) -> void:
 
 func _load_room() -> void:
 	_repair_dungeon_if_needed()
+	if not dungeon.has(current_room):
+		_reset_to_floor_start()
+	if dungeon.size() > 1 and _room_exit_count(current_room) == 0:
+		_generate_dungeon()
+		_reset_to_floor_start()
 	changing_room = false
 	room_cleared = false
 	enemy_shoot_timer = 1.0
@@ -1350,13 +1448,27 @@ func _open_door() -> void:
 	room_cleared = true
 	cleared_rooms[current_room] = true
 	_set_doors_visible(true)
+	if dungeon.size() > 1 and _room_exit_count(current_room) > 0 and _visible_door_count() == 0:
+		_generate_dungeon()
+		_reset_to_floor_start()
+		_set_doors_visible(true)
 
 func _set_doors_visible(open: bool) -> void:
+	if open and not dungeon.has(current_room):
+		_reset_to_floor_start()
 	for direction in doors.keys():
 		var door_area: Area2D = doors[direction]
 		var can_enter: bool = open and dungeon.has(current_room + direction)
 		door_area.visible = can_enter
 		door_area.monitoring = can_enter
+
+func _visible_door_count() -> int:
+	var count := 0
+	for direction in doors.keys():
+		var door_area: Area2D = doors[direction]
+		if door_area.visible:
+			count += 1
+	return count
 
 func _on_door_body_entered(body: Node2D, direction: Vector2i) -> void:
 	if body != player or not room_cleared or changing_room:
@@ -1701,8 +1813,8 @@ func _update_hud() -> void:
 	var root := hud.get_node("HUDRoot/StatsPanel/HudBox")
 	_update_hearts(root.get_node("TopRow/Hearts"))
 	var room_label: Label = root.get_node("TopRow/RoomInfo")
-	room_label.text = "F%d  R%d  %s" % [
-		floor_number, room_number, _room_type_name(dungeon.get(current_room, "normal"))
+	room_label.text = "F%d  R%d/%d  %s" % [
+		floor_number, room_number, dungeon.size(), _room_type_name(dungeon.get(current_room, "normal"))
 	]
 	var level_label: Label = root.get_node("TopRow/LevelInfo")
 	level_label.text = "LV %d" % level
