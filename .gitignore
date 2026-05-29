@@ -5,3 +5,7 @@ export/
 docs/*.import
 *.tmp
 *.translation
+.translation
+.DS_Store
+.claude/
+plugin_config.json
