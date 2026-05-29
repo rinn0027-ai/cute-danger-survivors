@@ -8,6 +8,7 @@ const ItemPickupScene := preload("res://scripts/item_pickup.gd")
 const JoystickScene := preload("res://scripts/virtual_joystick.gd")
 const MusicPlayer := preload("res://scripts/music_player.gd")
 const SfxPlayer   := preload("res://scripts/sfx_player.gd")
+const UI_FONT_PATH := "res://assets/fonts/GameFont.otf"
 const DUNGEON_MIN_ROOMS := 7
 const DUNGEON_MAX_ATTEMPTS := 24
 
@@ -1493,6 +1494,7 @@ func _make_hud() -> CanvasLayer:
 	var layer := CanvasLayer.new()
 	var root := Control.new()
 	root.name = "HUDRoot"
+	root.theme = _make_ui_theme()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	layer.add_child(root)
 	var stats_panel := PanelContainer.new()
@@ -1638,6 +1640,14 @@ func _make_card_style(bg: Color, border: Color, border_width: int) -> StyleBoxFl
 	style.content_margin_top = 8
 	style.content_margin_bottom = 8
 	return style
+
+func _make_ui_theme() -> Theme:
+	var theme := Theme.new()
+	var ui_font := load(UI_FONT_PATH) as Font
+	if ui_font != null:
+		theme.default_font = ui_font
+	theme.default_font_size = 16
+	return theme
 
 func _make_level_panel() -> Control:
 	var shade := Control.new()

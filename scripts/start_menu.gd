@@ -1,9 +1,11 @@
 extends Control
 
 const MusicPlayer := preload("res://scripts/music_player.gd")
+const UI_FONT_PATH := "res://assets/fonts/GameFont.otf"
 
 func _ready() -> void:
 	add_child(MusicPlayer.new())
+	theme = _make_ui_theme()
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 
@@ -99,3 +101,11 @@ func _request_mobile_fullscreen() -> void:
 			document.documentElement.style.overflow = 'hidden';
 		})();
 	""")
+
+func _make_ui_theme() -> Theme:
+	var ui_theme := Theme.new()
+	var ui_font := load(UI_FONT_PATH) as Font
+	if ui_font != null:
+		ui_theme.default_font = ui_font
+	ui_theme.default_font_size = 16
+	return ui_theme
