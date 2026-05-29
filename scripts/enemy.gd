@@ -136,8 +136,11 @@ func _move_erratic(delta: float) -> void:
 func take_damage(amount: int) -> void:
 	health -= amount
 	var tween := create_tween()
+	sprite.modulate = Color.WHITE
 	tween.tween_property(sprite, "scale", Vector2(visual_scale * 1.14, visual_scale * 0.9), 0.05)
+	tween.parallel().tween_property(sprite, "modulate", Color("#fff7c2"), 0.04)
 	tween.tween_property(sprite, "scale", Vector2(visual_scale, visual_scale), 0.08)
+	tween.parallel().tween_property(sprite, "modulate", Color.WHITE, 0.08)
 	if health <= 0:
 		defeated.emit(global_position)
 		queue_free()

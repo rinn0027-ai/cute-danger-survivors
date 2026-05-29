@@ -1,5 +1,7 @@
 extends Area2D
 
+signal hit_something(hit_pos: Vector2, effect_name: String, hit_damage: int, player_bullet: bool, hit_body: Node2D)
+
 var direction := Vector2.RIGHT
 var speed := 420.0
 var damage := 1
@@ -56,6 +58,7 @@ func _ready() -> void:
 		hit_radius   = 7.0
 
 	var sprite := Sprite2D.new()
+	sprite.name = "BulletSprite"
 	sprite.texture = _make_pixel_texture([
 		"................",
 		"................",
@@ -76,6 +79,9 @@ func _ready() -> void:
 	], {"y": outer_color, "w": inner_color})
 	sprite.scale = Vector2(bullet_scale * size_mult, bullet_scale * size_mult)
 	add_child(sprite)
+	var pulse := create_tween().set_loops()
+	pulse.tween_property(sprite, "modulate:a", 0.72, 0.08)
+	pulse.tween_property(sprite, "modulate:a", 1.0, 0.08)
 	var shape := CollisionShape2D.new()
 	var circle := CircleShape2D.new()
 	circle.radius = hit_radius * size_mult
@@ -96,6 +102,7 @@ func _physics_process(delta: float) -> void:
 
 func _on_body_entered(body: Node2D) -> void:
 	if from_player and body.has_method("take_damage"):
+		hit_something.emit(global_position, effect, damage, true, body)
 		body.take_damage(damage)
 		if sfx != null:
 			sfx.play_hit()
@@ -106,6 +113,7 @@ func _on_body_entered(body: Node2D) -> void:
 		else:
 			queue_free()
 	elif not from_player and body.has_method("take_damage"):
+		hit_something.emit(global_position, "enemy", damage, false, body)
 		body.take_damage(damage)
 		queue_free()
 

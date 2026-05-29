@@ -8,6 +8,8 @@ const ItemPickupScene := preload("res://scripts/item_pickup.gd")
 const JoystickScene := preload("res://scripts/virtual_joystick.gd")
 const MusicPlayer := preload("res://scripts/music_player.gd")
 const SfxPlayer   := preload("res://scripts/sfx_player.gd")
+const DUNGEON_MIN_ROOMS := 7
+const DUNGEON_MAX_ATTEMPTS := 24
 
 var player: CharacterBody2D
 var hud: CanvasLayer
@@ -16,6 +18,7 @@ var boss_bar: ProgressBar
 var boss_name_label: Label
 var floor_node: Node2D
 var walls_node: Node2D
+var floor_theme := "stone"
 var joystick_move: Control   # 手机：单摇杆控制移动
 var joystick_aim: Control    # 桌面兼容保留；手机不再创建右摇杆
 var _sfx: Node               # 音效管理器
@@ -42,10 +45,21 @@ var visited_rooms := {}
 var cleared_rooms := {}
 var paused_for_upgrade := false
 var game_over := false
+var holy_timer := 2.2
+var moon_timer := 0.0
+var moon_visual_timer := 0.0
 var boss_state := {
 	"patterns": [], "index": 0, "spiral_angle": 0.0,
 	"seed": 0, "archetype_id": 0, "concept_id": 0, "aspect_id": 0
 }
+var floor_themes := [
+	{"key": "stone", "texture": "res://assets/sprites/floor.png", "wall": Color("#151827")},
+	{"key": "spring", "texture": "res://assets/sprites/floor_spring.png", "wall": Color("#11221a")},
+	{"key": "summer", "texture": "res://assets/sprites/floor_summer.png", "wall": Color("#10251c")},
+	{"key": "autumn", "texture": "res://assets/sprites/floor_autumn.png", "wall": Color("#241714")},
+	{"key": "winter", "texture": "res://assets/sprites/floor_winter.png", "wall": Color("#14202c")},
+	{"key": "snow", "texture": "res://assets/sprites/floor_snow.png", "wall": Color("#3a5364")},
+]
 
 # ── 地下城固定元素池：基础轮廓 + 元素变体 + 行为原型 ─────────────────────────
 # 每个敌人由 family/concept 决定像素轮廓，aspect 决定配色和少量数值。
@@ -109,6 +123,10 @@ var stats := {
 	"split_shot": false,
 	"ember_bullets": false,
 	"void_bullets": false,
+	"chain_lightning": 0,
+	"astral_rift": 0,
+	"blood_moon": 0,
+	"holy_judgement": 0,
 	"move_speed": 160.0,
 	"max_health": 20
 }
@@ -128,6 +146,7 @@ var combo_effects := {
 @onready var gems := Node2D.new()
 @onready var bullets := Node2D.new()
 @onready var pickups := Node2D.new()
+@onready var effects := Node2D.new()
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -135,6 +154,7 @@ func _ready() -> void:
 	_sfx = SfxPlayer.new()
 	add_child(_sfx)
 	rng.randomize()
+	_pick_floor_theme()
 	_configure_room_rect()
 	_generate_dungeon()
 	floor_node = _make_floor()
@@ -145,10 +165,14 @@ func _ready() -> void:
 	enemies.process_mode = Node.PROCESS_MODE_PAUSABLE
 	bullets.process_mode = Node.PROCESS_MODE_PAUSABLE
 	pickups.process_mode = Node.PROCESS_MODE_PAUSABLE
+	effects.process_mode = Node.PROCESS_MODE_PAUSABLE
 	add_child(gems)
 	add_child(enemies)
 	add_child(bullets)
 	add_child(pickups)
+	effects.name = "CombatEffects"
+	effects.z_index = 18
+	add_child(effects)
 	for direction in [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.UP, Vector2i.DOWN]:
 		var room_door := _make_door(direction)
 		doors[direction] = room_door
@@ -220,6 +244,7 @@ func _physics_process(delta: float) -> void:
 	player.joystick_direction = joystick_move.direction
 	_keep_player_inside_room()
 	_handle_shooting()
+	_update_skill_effects(delta)
 	if enemy_shoot_timer <= 0.0:
 		_fire_enemy_bullets()
 		var shoot_interval := 1.25
@@ -286,7 +311,9 @@ func _fire_player_bullets(direction: Vector2) -> void:
 		elif stats["ember_bullets"]:
 			bullet.effect = "ember"
 		bullet.global_position = player.global_position + bullet.direction * 18.0
+		bullet.hit_something.connect(_on_bullet_hit)
 		bullets.add_child(bullet)
+		_spawn_muzzle_flash(bullet.global_position, bullet.direction, bullet.effect)
 	if _sfx != null:
 		_sfx.play_shoot()
 
@@ -309,6 +336,7 @@ func _spawn_enemy_bullet(origin: Vector2, direction: Vector2, bullet_speed: floa
 	bullet.damage = 1
 	bullet.lifetime = 3.0
 	bullet.global_position = origin + bullet.direction * 20.0
+	bullet.hit_something.connect(_on_bullet_hit)
 	bullets.add_child(bullet)
 
 func _spawn_enemy_bullet_sized(origin: Vector2, direction: Vector2, bullet_speed: float, size_mult: float, lifetime := 3.0) -> void:
@@ -320,66 +348,52 @@ func _spawn_enemy_bullet_sized(origin: Vector2, direction: Vector2, bullet_speed
 	bullet.lifetime = lifetime
 	bullet.size_mult = size_mult
 	bullet.global_position = origin + bullet.direction * 24.0
+	bullet.hit_something.connect(_on_bullet_hit)
 	bullets.add_child(bullet)
 
-func _generate_boss_patterns(floor: int, archetype: int) -> Array:
+func _generate_boss_patterns(floor: int, archetype: int, concept_key: String) -> Array:
 	var spd := 158.0 + floor * 11.0      # 基础子弹速度随层递增
 	var result: Array = []
+	var pressure := mini(floor, 10)
 
-	match archetype:
-		0:  # 炮台 Artillery：大量覆盖弹幕，环形+追踪组合
-			result.append({"type": "gap_ring",
-				"count": mini(16 + floor * 2, 30), "gap_index": rng.randi_range(0, 7), "gap_width": 2, "speed": spd * 0.92})
-			result.append({"type": "ring_aimed",
-				"ring_count": mini(12 + floor, 24),
-				"aimed_count": mini(4 + floor / 2, 8),
-				"speed": spd * 1.05})
-			result.append({"type": "wall_sweep",
-				"lanes": mini(5 + floor, 10), "speed": spd * 0.78})
-
-		1:  # 追击 Chaser：精准散弹为主，配合螺旋
-			result.append({"type": "aimed",
-				"count": mini(5 + floor, 11),
-				"spread_deg": 10.0, "speed": spd * 1.22})
-			result.append({"type": "flower",
-				"petals": mini(7 + floor, 13), "layers": 2, "speed": spd * 0.9})
-			result.append({"type": "double_spiral",
-				"count": mini(5 + floor, 10),
-				"speed": spd * 1.0,
-				"step_deg": maxf(13.0, 36.0 - floor * 2.0)})
-
-		2:  # 舞者 Dancer：螺旋为主，十字穿插
-			result.append({"type": "double_spiral",
-				"count": mini(6 + floor, 12),
-				"speed": spd * 1.15,
-				"step_deg": maxf(10.0, 34.0 - floor * 2.4)})
-			result.append({"type": "rotating_cross",
-				"speed": spd, "offset_deg": 0.0})
-			result.append({"type": "gap_ring",
-				"count": mini(18 + floor * 2, 32), "gap_index": rng.randi_range(0, 9), "gap_width": 3, "speed": spd * 0.86})
-
-		3:  # 狂战士 Berserker：全类型混搭，随机 3 个
-			var pool: Array = [
-				{"type": "gap_ring",
-					"count": mini(18 + floor * 2, 32), "gap_index": rng.randi_range(0, 10), "gap_width": 2, "speed": spd},
-				{"type": "aimed",
-					"count": mini(6 + floor, 12),
-					"spread_deg": 16.0, "speed": spd * 1.15},
-				{"type": "double_spiral",
-					"count": mini(6 + floor, 12),
-					"speed": spd * 1.2,
-					"step_deg": maxf(10.0, 30.0 - floor * 2.0)},
-				{"type": "ring_aimed",
-					"ring_count": mini(12 + floor, 24),
-					"aimed_count": mini(4 + floor / 2, 8),
-					"speed": spd},
-				{"type": "flower",
-					"petals": mini(8 + floor, 14), "layers": 2, "speed": spd * 0.92},
+	match concept_key:
+		"dragon":
+			result = [
+				{"type": "dragon_breath", "streams": mini(5 + pressure / 2, 9), "speed": spd * 1.05, "spread_deg": 42.0},
+				{"type": "cross_spiral", "count": mini(7 + pressure, 16), "speed": spd * 1.1, "step_deg": 17.0},
+				{"type": "fan_weave", "count": mini(7 + pressure, 14), "speed": spd * 1.18, "spread_deg": 58.0}
 			]
-			pool.append({"type": "rotating_cross",
-				"speed": spd, "offset_deg": rng.randf_range(0.0, 44.9)})
-			pool.shuffle()
-			result = pool.slice(0, mini(4, pool.size()))
+		"lich":
+			result = [
+				{"type": "magic_circle", "points": mini(6 + pressure, 14), "layers": 2 + int(pressure / 5), "speed": spd * 0.86},
+				{"type": "star_weave", "points": 5 + int(pressure / 3), "speed": spd * 1.05},
+				{"type": "gap_ring", "count": mini(20 + pressure * 2, 38), "gap_index": rng.randi_range(0, 10), "gap_width": 3, "speed": spd * 0.9}
+			]
+		"demon":
+			result = [
+				{"type": "cross_spiral", "count": mini(8 + pressure, 18), "speed": spd * 1.18, "step_deg": 13.0},
+				{"type": "butterfly", "wings": mini(5 + pressure / 2, 10), "speed": spd * 1.08},
+				{"type": "rotating_cross", "speed": spd * 1.12, "offset_deg": rng.randf_range(0.0, 44.9)}
+			]
+		"minotaur":
+			result = [
+				{"type": "wall_sweep", "lanes": mini(6 + pressure, 12), "speed": spd * 0.9},
+				{"type": "stampede_cross", "speed": spd * 1.28, "lanes": mini(3 + pressure / 3, 6)},
+				{"type": "aimed", "count": mini(5 + pressure, 12), "spread_deg": 18.0, "speed": spd * 1.25}
+			]
+		"watcher":
+			result = [
+				{"type": "eye_bloom", "rays": mini(10 + pressure * 2, 28), "speed": spd * 0.98},
+				{"type": "star_weave", "points": mini(6 + pressure / 2, 11), "speed": spd * 1.12},
+				{"type": "ring_aimed", "ring_count": mini(14 + pressure, 28), "aimed_count": mini(4 + floor / 2, 9), "speed": spd}
+			]
+
+	if archetype == 1:
+		result.append({"type": "aimed", "count": mini(5 + floor, 12), "spread_deg": 10.0, "speed": spd * 1.22})
+	elif archetype == 2:
+		result.append({"type": "rotating_cross", "speed": spd, "offset_deg": 0.0})
+	elif archetype == 3:
+		result.append({"type": "flower", "petals": mini(8 + floor, 14), "layers": 2, "speed": spd * 0.95})
 
 	return result
 
@@ -492,6 +506,98 @@ func _fire_pattern(origin: Vector2, pattern: Dictionary) -> void:
 					continue
 				_spawn_enemy_bullet_sized(Vector2(x, y), dir, spd, 0.92, 3.4)
 
+		"dragon_breath":
+			if player == null:
+				return
+			var streams: int = pattern["streams"]
+			var spread: float = deg_to_rad(pattern["spread_deg"])
+			var to_player := origin.direction_to(player.global_position)
+			var start: float = -spread * 0.5
+			for stream in range(streams):
+				var dir := to_player.rotated(start + spread * float(stream) / maxf(1.0, float(streams - 1)))
+				for trail in range(3):
+					_spawn_enemy_bullet_sized(origin + dir * float(trail * 10), dir.rotated(sin(game_time * 5.0 + stream) * 0.08), spd + trail * 28.0, 1.25 - trail * 0.18, 2.8)
+			_spawn_pixel_beam(origin, origin + to_player * 130.0, Color("#ff9b35"), 8.0, 0.12)
+
+		"cross_spiral":
+			var n: int = pattern["count"]
+			var step: float = deg_to_rad(pattern["step_deg"])
+			var base: float = boss_state["spiral_angle"]
+			for i in range(n):
+				for arm in range(4):
+					var dir := Vector2.RIGHT.rotated(base + step * i + TAU * float(arm) / 4.0)
+					_spawn_enemy_bullet_sized(origin, dir, spd + (i % 3) * 18.0, 0.86 + float(i % 2) * 0.24, 3.2)
+			boss_state["spiral_angle"] = base + step * 0.62
+
+		"magic_circle":
+			var points: int = pattern["points"]
+			var layers: int = pattern["layers"]
+			var base: float = boss_state["spiral_angle"]
+			for layer in range(layers):
+				var radius := 22.0 + layer * 18.0
+				var offset: float = base + layer * deg_to_rad(11.0)
+				for i in range(points):
+					var angle: float = offset + TAU * float(i) / float(points)
+					var spawn := origin + Vector2.RIGHT.rotated(angle) * radius
+					var dir := Vector2.RIGHT.rotated(angle + PI * 0.5 + layer * 0.22)
+					_spawn_enemy_bullet_sized(spawn, dir, spd + layer * 20.0, 0.78 + layer * 0.12, 3.6)
+			_draw_magic_circle(origin, 46.0 + layers * 14.0)
+			boss_state["spiral_angle"] = base + deg_to_rad(15.0)
+
+		"star_weave":
+			var points: int = pattern["points"]
+			var base: float = boss_state["spiral_angle"]
+			for i in range(points):
+				var a := base + TAU * float(i) / float(points)
+				var b := base + TAU * float((i * 2) % points) / float(points)
+				_spawn_enemy_bullet_sized(origin, Vector2.RIGHT.rotated(a), spd, 1.05, 3.2)
+				_spawn_enemy_bullet_sized(origin + Vector2.RIGHT.rotated(a) * 28.0, Vector2.RIGHT.rotated(b), spd * 0.86, 0.78, 3.6)
+				_spawn_pixel_beam(origin + Vector2.RIGHT.rotated(a) * 22.0, origin + Vector2.RIGHT.rotated(b) * 90.0, Color("#a378ff"), 3.0, 0.12)
+			boss_state["spiral_angle"] = base + deg_to_rad(19.0)
+
+		"butterfly":
+			var wings: int = pattern["wings"]
+			var base: float = boss_state["spiral_angle"]
+			for side in [-1, 1]:
+				for i in range(wings):
+					var t: float = float(i) / float(maxi(1, wings - 1))
+					var side_mult: float = float(side)
+					var angle: float = base + side_mult * (0.35 + t * 1.15)
+					_spawn_enemy_bullet_sized(origin, Vector2.RIGHT.rotated(angle), spd * (0.85 + t * 0.4), 1.0, 3.4)
+					_spawn_enemy_bullet_sized(origin, Vector2.RIGHT.rotated(angle + PI), spd * (0.85 + t * 0.4), 0.82, 3.6)
+			boss_state["spiral_angle"] = base + deg_to_rad(21.0)
+
+		"stampede_cross":
+			var lanes: int = pattern["lanes"]
+			for i in range(lanes):
+				var offset: float = (float(i) - float(lanes - 1) * 0.5) * 34.0
+				_spawn_enemy_bullet_sized(Vector2(room_rect.position.x + 18.0, origin.y + offset), Vector2.RIGHT, spd, 1.18, 3.0)
+				_spawn_enemy_bullet_sized(Vector2(room_rect.end.x - 18.0, origin.y - offset), Vector2.LEFT, spd, 1.18, 3.0)
+				_spawn_enemy_bullet_sized(Vector2(origin.x + offset, room_rect.position.y + 18.0), Vector2.DOWN, spd * 0.9, 0.96, 3.2)
+				_spawn_enemy_bullet_sized(Vector2(origin.x - offset, room_rect.end.y - 18.0), Vector2.UP, spd * 0.9, 0.96, 3.2)
+
+		"eye_bloom":
+			var rays: int = pattern["rays"]
+			var base: float = boss_state["spiral_angle"]
+			for i in range(rays):
+				var angle: float = base + TAU * float(i) / float(rays)
+				var wave: float = sin(game_time * 3.2 + i * 0.7) * 0.18
+				_spawn_enemy_bullet_sized(origin, Vector2.RIGHT.rotated(angle + wave), spd * (0.82 + float(i % 4) * 0.08), 0.76 + float(i % 3) * 0.18, 3.5)
+			_draw_magic_circle(origin, 58.0)
+			boss_state["spiral_angle"] = base + deg_to_rad(11.0)
+
+		"fan_weave":
+			if player == null:
+				return
+			var count: int = pattern["count"]
+			var spread: float = deg_to_rad(pattern["spread_deg"])
+			var to_player := origin.direction_to(player.global_position)
+			for i in range(count):
+				var t: float = float(i) / float(maxi(1, count - 1))
+				var angle: float = -spread * 0.5 + spread * t
+				var dir := to_player.rotated(angle + sin(game_time * 4.0 + i) * 0.12)
+				_spawn_enemy_bullet_sized(origin, dir, spd * (0.82 + t * 0.45), 0.9, 3.2)
+
 func _input(event: InputEvent) -> void:
 	if not paused_for_upgrade or not event.is_pressed():
 		return
@@ -504,26 +610,28 @@ func _input(event: InputEvent) -> void:
 			_choose_upgrade(current_upgrade_keys[2])
 
 func _make_floor() -> Node2D:
-	var floor := Node2D.new()
-	floor.name = "PixelFloor"
-	var tile_texture := _load_png_texture("res://assets/sprites/floor.png")
-	var x_start := int(floor(room_rect.position.x / 32.0))
-	var x_end := int(ceil(room_rect.end.x / 32.0))
-	var y_start := int(floor(room_rect.position.y / 32.0))
-	var y_end := int(ceil(room_rect.end.y / 32.0))
+	var floor_layer := Node2D.new()
+	floor_layer.name = "PixelFloor"
+	var theme := _current_floor_theme()
+	var tile_texture := _load_png_texture(theme["texture"])
+	var tile_size := 64.0
+	var x_start := int(floor(room_rect.position.x / tile_size))
+	var x_end := int(ceil(room_rect.end.x / tile_size)) + 1
+	var y_start := int(floor(room_rect.position.y / tile_size))
+	var y_end := int(ceil(room_rect.end.y / tile_size)) + 1
 	for x in range(x_start, x_end):
 		for y in range(y_start, y_end):
 			var tile := Sprite2D.new()
 			tile.texture = tile_texture
-			tile.position = Vector2(x * 32, y * 32)
-			floor.add_child(tile)
-	return floor
+			tile.position = Vector2(x * tile_size, y * tile_size)
+			floor_layer.add_child(tile)
+	return floor_layer
 
 func _make_room_walls() -> Node2D:
 	var walls := Node2D.new()
 	walls.name = "RoomWalls"
 	var vp_size := get_viewport_rect().size
-	var color := Color("#151827")
+	var color: Color = _current_floor_theme()["wall"]
 	var top := ColorRect.new()
 	top.color = color
 	top.position = Vector2(0, 0)
@@ -546,22 +654,112 @@ func _make_room_walls() -> Node2D:
 	walls.add_child(right)
 	return walls
 
+func _current_floor_theme() -> Dictionary:
+	for theme in floor_themes:
+		if theme["key"] == floor_theme:
+			return theme
+	return floor_themes[0]
+
+func _pick_floor_theme() -> void:
+	if floor_themes.is_empty():
+		floor_theme = "stone"
+		return
+	var index := rng.randi_range(0, floor_themes.size() - 1)
+	floor_theme = floor_themes[index]["key"]
+
 func _generate_dungeon() -> void:
+	var target_rooms := DUNGEON_MIN_ROOMS + mini(int(floor_number / 3), 3)
+	for attempt in range(DUNGEON_MAX_ATTEMPTS):
+		_build_dungeon_layout(target_rooms)
+		if _is_valid_dungeon(target_rooms):
+			return
+	_build_fallback_dungeon(target_rooms)
+	if not _is_valid_dungeon(target_rooms):
+		_build_line_dungeon(target_rooms)
+
+func _build_dungeon_layout(target_rooms: int) -> void:
 	dungeon.clear()
 	visited_rooms.clear()
 	cleared_rooms.clear()
 	current_room = Vector2i.ZERO
 	entry_direction = Vector2i.ZERO
 	dungeon[current_room] = "start"
-	var cursor := current_room
 	var directions := [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.UP, Vector2i.DOWN]
-	while dungeon.size() < 7:
-		cursor += directions[rng.randi_range(0, directions.size() - 1)]
-		if abs(cursor.x) + abs(cursor.y) > 5:
-			cursor = Vector2i.ZERO
+	var cursor := Vector2i.ZERO
+	var last_dir := Vector2i.ZERO
+	var boss_distance := mini(target_rooms - 2, 4 + int(floor_number / 3))
+	for step in range(boss_distance):
+		var next_dir := _random_growth_direction(cursor, directions, last_dir)
+		if next_dir == Vector2i.ZERO:
+			break
+		cursor += next_dir
+		last_dir = next_dir
+		dungeon[cursor] = "normal"
+	var tries := 0
+	while dungeon.size() < target_rooms and tries < target_rooms * 120:
+		tries += 1
+		var rooms: Array = dungeon.keys()
+		var base: Vector2i = rooms[rng.randi_range(0, rooms.size() - 1)]
+		var next_dir := _random_growth_direction(base, directions, Vector2i.ZERO)
+		if next_dir == Vector2i.ZERO:
 			continue
-		if not dungeon.has(cursor):
-			dungeon[cursor] = "normal"
+		dungeon[base + next_dir] = "normal"
+	_assign_special_rooms()
+
+func _random_growth_direction(base: Vector2i, directions: Array, previous_dir: Vector2i) -> Vector2i:
+	var shuffled_dirs := directions.duplicate()
+	shuffled_dirs.shuffle()
+	for direction in shuffled_dirs:
+		if previous_dir != Vector2i.ZERO and direction == -previous_dir and rng.randf() < 0.75:
+			continue
+		var candidate: Vector2i = base + direction
+		if abs(candidate.x) + abs(candidate.y) > 6:
+			continue
+		if dungeon.has(candidate):
+			continue
+		return direction
+	return Vector2i.ZERO
+
+func _build_fallback_dungeon(target_rooms: int) -> void:
+	dungeon.clear()
+	visited_rooms.clear()
+	cleared_rooms.clear()
+	current_room = Vector2i.ZERO
+	entry_direction = Vector2i.ZERO
+	dungeon[current_room] = "start"
+	var cursor := Vector2i.ZERO
+	var path := [
+		Vector2i.RIGHT, Vector2i.RIGHT, Vector2i.DOWN, Vector2i.LEFT,
+		Vector2i.DOWN, Vector2i.RIGHT, Vector2i.RIGHT, Vector2i.UP,
+		Vector2i.RIGHT, Vector2i.DOWN
+	]
+	var path_index := 0
+	while dungeon.size() < target_rooms:
+		cursor += path[path_index % path.size()]
+		path_index += 1
+		if dungeon.has(cursor):
+			cursor += Vector2i.DOWN
+		dungeon[cursor] = "normal"
+	_assign_special_rooms()
+
+func _build_line_dungeon(target_rooms: int) -> void:
+	dungeon.clear()
+	visited_rooms.clear()
+	cleared_rooms.clear()
+	current_room = Vector2i.ZERO
+	entry_direction = Vector2i.ZERO
+	dungeon[current_room] = "start"
+	for x in range(1, target_rooms):
+		dungeon[Vector2i(x, 0)] = "normal"
+	_assign_special_rooms()
+
+func _repair_dungeon_if_needed() -> void:
+	var target_rooms := DUNGEON_MIN_ROOMS + mini(int(floor_number / 3), 3)
+	if _is_valid_dungeon(target_rooms):
+		return
+	_generate_dungeon()
+
+func _assign_special_rooms() -> void:
 	var farthest := Vector2i.ZERO
 	var farthest_dist := -1
 	for room_pos in dungeon.keys():
@@ -579,6 +777,28 @@ func _generate_dungeon() -> void:
 		dungeon[candidates.pop_back()] = "treasure"
 	if candidates.size() > 0:
 		dungeon[candidates.pop_back()] = "shop"
+
+func _is_valid_dungeon(target_rooms: int) -> bool:
+	if dungeon.size() < target_rooms:
+		return false
+	if not dungeon.has(Vector2i.ZERO) or dungeon[Vector2i.ZERO] != "start":
+		return false
+	if boss_room == Vector2i.ZERO or not dungeon.has(boss_room) or dungeon[boss_room] != "boss":
+		return false
+	return _reachable_room_count() == dungeon.size()
+
+func _reachable_room_count() -> int:
+	var seen := {Vector2i.ZERO: true}
+	var queue := [Vector2i.ZERO]
+	var directions := [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.UP, Vector2i.DOWN]
+	while not queue.is_empty():
+		var room: Vector2i = queue.pop_front()
+		for direction in directions:
+			var neighbor: Vector2i = room + direction
+			if dungeon.has(neighbor) and not seen.has(neighbor):
+				seen[neighbor] = true
+				queue.append(neighbor)
+	return seen.size()
 
 func _make_door(direction: Vector2i) -> Area2D:
 	var area := Area2D.new()
@@ -598,22 +818,23 @@ func _make_door(direction: Vector2i) -> Area2D:
 	area.add_child(door_sprite)
 	var shape := CollisionShape2D.new()
 	var rect := RectangleShape2D.new()
-	rect.size = Vector2(36, 84) if direction == Vector2i.RIGHT or direction == Vector2i.LEFT else Vector2(84, 36)
+	rect.size = Vector2(44, 96) if direction == Vector2i.RIGHT or direction == Vector2i.LEFT else Vector2(96, 44)
 	shape.shape = rect
 	area.add_child(shape)
 	return area
 
 func _position_door(area: Area2D, direction: Vector2i) -> void:
 	if direction == Vector2i.RIGHT:
-		area.position = Vector2(room_rect.end.x - 10, room_rect.get_center().y)
+		area.position = Vector2(room_rect.end.x - 6, room_rect.get_center().y)
 	elif direction == Vector2i.LEFT:
-		area.position = Vector2(room_rect.position.x + 10, room_rect.get_center().y)
+		area.position = Vector2(room_rect.position.x + 6, room_rect.get_center().y)
 	elif direction == Vector2i.UP:
-		area.position = Vector2(room_rect.get_center().x, room_rect.position.y + 10)
+		area.position = Vector2(room_rect.get_center().x, room_rect.position.y + 6)
 	elif direction == Vector2i.DOWN:
-		area.position = Vector2(room_rect.get_center().x, room_rect.end.y - 10)
+		area.position = Vector2(room_rect.get_center().x, room_rect.end.y - 6)
 
 func _load_room() -> void:
+	_repair_dungeon_if_needed()
 	changing_room = false
 	room_cleared = false
 	enemy_shoot_timer = 1.0
@@ -642,13 +863,14 @@ func _load_room() -> void:
 	elif room_type == "boss":
 		var boss_seed: int = rng.randi()
 		boss_state["seed"] = boss_seed
-		# concept / aspect / archetype 独立随机，产生 5×5×4 种 Boss 组合。
-		boss_state["concept_id"]   = boss_seed % _boss_concepts.size()
+		# concept / aspect / archetype combine into varied boss identities.
+		boss_state["concept_id"] = boss_seed % _boss_concepts.size()
 		boss_state["aspect_id"] = (boss_seed / _boss_concepts.size()) % _dungeon_aspects.size()
 		boss_state["archetype_id"] = (boss_seed / (_boss_concepts.size() * _dungeon_aspects.size())) % 4
 		boss_state["index"] = 0
 		boss_state["spiral_angle"] = 0.0
-		boss_state["patterns"] = _generate_boss_patterns(floor_number, boss_state["archetype_id"])
+		var concept: Dictionary = _boss_concepts[boss_state["concept_id"]]
+		boss_state["patterns"] = _generate_boss_patterns(floor_number, boss_state["archetype_id"], concept["key"])
 		_spawn_enemy_count(1, true)
 	elif room_type == "treasure":
 		_spawn_room_item("treasure")
@@ -785,6 +1007,7 @@ func _spawn_enemy_in_room(boss := false) -> void:
 
 func _on_enemy_defeated(enemy_pos: Vector2) -> void:
 	kills += 1
+	_spawn_death_burst(enemy_pos, dungeon.get(current_room, "normal") == "boss")
 	var gem := GemScene.new()
 	gem.position = enemy_pos
 	gem.collected.connect(_on_gem_collected)
@@ -795,6 +1018,236 @@ func _on_enemy_defeated(enemy_pos: Vector2) -> void:
 			_spawn_room_item("boss")
 			_spawn_room_item("stairs")
 		_open_door()
+
+func _on_bullet_hit(hit_pos: Vector2, effect_name: String, hit_damage: int, player_bullet: bool, hit_body: Node2D) -> void:
+	_spawn_hit_spark(hit_pos, effect_name, hit_damage, player_bullet)
+	if player_bullet:
+		if int(stats["chain_lightning"]) > 0:
+			_cast_chain_lightning(hit_pos, hit_body, hit_damage)
+		if int(stats["astral_rift"]) > 0 and rng.randf() < 0.18 + float(stats["astral_rift"]) * 0.08:
+			_spawn_astral_rift(hit_pos, hit_damage)
+
+func _spawn_muzzle_flash(origin: Vector2, direction: Vector2, effect_name: String) -> void:
+	var color := _effect_color(effect_name, true)
+	var flash := ColorRect.new()
+	flash.color = color
+	flash.size = Vector2(8, 8)
+	flash.position = origin - flash.size * 0.5 + direction.normalized() * 5.0
+	flash.rotation = direction.angle()
+	effects.add_child(flash)
+	var tween := create_tween()
+	tween.tween_property(flash, "scale", Vector2(0.35, 1.8), 0.04)
+	tween.parallel().tween_property(flash, "modulate:a", 0.0, 0.11)
+	tween.tween_callback(flash.queue_free)
+
+func _spawn_hit_spark(hit_pos: Vector2, effect_name: String, hit_damage: int, player_bullet: bool) -> void:
+	var color := _effect_color(effect_name, player_bullet)
+	var count := mini(10, 4 + hit_damage * 2)
+	var burst_radius := 18.0 if player_bullet else 12.0
+	for i in range(count):
+		var shard := ColorRect.new()
+		shard.color = color.lightened(rng.randf_range(0.0, 0.35))
+		var size := rng.randf_range(3.0, 6.0)
+		shard.size = Vector2(size, size)
+		shard.position = hit_pos - shard.size * 0.5
+		effects.add_child(shard)
+		var dir := Vector2.RIGHT.rotated((TAU / float(count)) * i + rng.randf_range(-0.35, 0.35))
+		var tween := create_tween()
+		tween.tween_property(shard, "position", shard.position + dir * rng.randf_range(8.0, burst_radius), 0.16)
+		tween.parallel().tween_property(shard, "modulate:a", 0.0, 0.16)
+		tween.parallel().tween_property(shard, "scale", Vector2.ZERO, 0.16)
+		tween.tween_callback(shard.queue_free)
+
+func _spawn_death_burst(origin: Vector2, is_boss: bool) -> void:
+	var count := 26 if is_boss else 12
+	var color := Color("#ff6f7d") if is_boss else Color("#78ffe1")
+	for i in range(count):
+		var shard := ColorRect.new()
+		shard.color = color.lerp(Color("#ffd464"), rng.randf_range(0.0, 0.45))
+		var size := rng.randf_range(4.0, 9.0) if is_boss else rng.randf_range(3.0, 6.0)
+		shard.size = Vector2(size, size)
+		shard.position = origin - shard.size * 0.5
+		effects.add_child(shard)
+		var dir := Vector2.RIGHT.rotated(TAU * float(i) / float(count) + rng.randf_range(-0.18, 0.18))
+		var distance := rng.randf_range(32.0, 80.0) if is_boss else rng.randf_range(18.0, 42.0)
+		var tween := create_tween()
+		tween.tween_property(shard, "position", shard.position + dir * distance, 0.34)
+		tween.parallel().tween_property(shard, "rotation", rng.randf_range(-PI, PI), 0.34)
+		tween.parallel().tween_property(shard, "modulate:a", 0.0, 0.34)
+		tween.tween_callback(shard.queue_free)
+
+func _update_skill_effects(delta: float) -> void:
+	if int(stats["blood_moon"]) > 0:
+		_update_blood_moons(delta)
+	if int(stats["holy_judgement"]) > 0:
+		holy_timer -= delta
+		if holy_timer <= 0.0:
+			holy_timer = maxf(1.7, 4.2 - float(stats["holy_judgement"]) * 0.45)
+			_call_holy_judgement()
+
+func _cast_chain_lightning(origin: Vector2, first_body: Node2D, hit_damage: int) -> void:
+	var jumps := mini(5, 2 + int(stats["chain_lightning"]))
+	var previous := origin
+	var excluded := {}
+	if first_body != null:
+		excluded[first_body] = true
+	for i in range(jumps):
+		var target := _nearest_enemy_to(previous, excluded, 230.0)
+		if target == null:
+			return
+		excluded[target] = true
+		_draw_lightning(previous, target.global_position)
+		target.take_damage(maxi(1, int(ceil(float(hit_damage) * 0.55))))
+		_spawn_hit_spark(target.global_position, "lightning", 1, true)
+		previous = target.global_position
+
+func _nearest_enemy_to(origin: Vector2, excluded: Dictionary, max_distance: float) -> Node2D:
+	var nearest: Node2D = null
+	var nearest_dist := max_distance
+	for enemy in enemies.get_children():
+		if excluded.has(enemy):
+			continue
+		var dist := origin.distance_to(enemy.global_position)
+		if dist < nearest_dist:
+			nearest = enemy
+			nearest_dist = dist
+	return nearest
+
+func _draw_lightning(from_pos: Vector2, to_pos: Vector2) -> void:
+	var segments := 5
+	var last := from_pos
+	for i in range(1, segments + 1):
+		var t := float(i) / float(segments)
+		var point := from_pos.lerp(to_pos, t) + Vector2.RIGHT.rotated(rng.randf() * TAU) * rng.randf_range(0.0, 10.0)
+		_spawn_pixel_beam(last, point, Color("#78ffe1"), 4.0, 0.13)
+		last = point
+
+func _spawn_astral_rift(origin: Vector2, hit_damage: int) -> void:
+	var rift := ColorRect.new()
+	rift.color = Color("#3f325c")
+	rift.size = Vector2(34, 34)
+	rift.position = origin - rift.size * 0.5
+	rift.rotation = rng.randf() * TAU
+	effects.add_child(rift)
+	var tween := create_tween()
+	tween.tween_property(rift, "scale", Vector2(2.5, 0.35), 0.22)
+	tween.parallel().tween_property(rift, "rotation", rift.rotation + PI, 0.22)
+	tween.tween_property(rift, "modulate:a", 0.0, 0.52)
+	tween.tween_callback(rift.queue_free)
+	_pull_and_burst_rift(origin, hit_damage)
+
+func _pull_and_burst_rift(origin: Vector2, hit_damage: int) -> void:
+	for step in range(18):
+		await get_tree().process_frame
+		for enemy in enemies.get_children():
+			var dist: float = enemy.global_position.distance_to(origin)
+			if dist < 150.0:
+				enemy.global_position = enemy.global_position.lerp(origin, 0.035)
+	for enemy in enemies.get_children():
+		if enemy.global_position.distance_to(origin) < 96.0:
+			enemy.take_damage(maxi(1, hit_damage))
+			_spawn_hit_spark(enemy.global_position, "void", hit_damage, true)
+
+func _update_blood_moons(delta: float) -> void:
+	moon_timer -= delta
+	moon_visual_timer -= delta
+	var moon_count := mini(4, 1 + int(stats["blood_moon"]))
+	var radius := 78.0 + float(stats["blood_moon"]) * 10.0
+	if moon_visual_timer <= 0.0:
+		moon_visual_timer = 0.05
+		for i in range(moon_count):
+			var angle := game_time * 2.8 + TAU * float(i) / float(moon_count)
+			var pos := player.global_position + Vector2.RIGHT.rotated(angle) * radius
+			_spawn_moon_trace(pos, angle)
+	if moon_timer > 0.0:
+		return
+	moon_timer = 0.22
+	for enemy in enemies.get_children():
+		for i in range(moon_count):
+			var angle := game_time * 2.8 + TAU * float(i) / float(moon_count)
+			var pos := player.global_position + Vector2.RIGHT.rotated(angle) * radius
+			if enemy.global_position.distance_to(pos) < 38.0:
+				enemy.take_damage(1 + int(stats["blood_moon"]))
+				_spawn_hit_spark(enemy.global_position, "blood", 2, true)
+				break
+
+func _spawn_moon_trace(pos: Vector2, angle: float) -> void:
+	var moon := ColorRect.new()
+	moon.color = Color("#ff4d6d")
+	moon.size = Vector2(16, 5)
+	moon.position = pos - moon.size * 0.5
+	moon.rotation = angle + PI * 0.5
+	effects.add_child(moon)
+	var tween := create_tween()
+	tween.tween_property(moon, "modulate:a", 0.0, 0.16)
+	tween.parallel().tween_property(moon, "scale", Vector2(1.8, 0.35), 0.16)
+	tween.tween_callback(moon.queue_free)
+
+func _call_holy_judgement() -> void:
+	var casts := mini(3, int(stats["holy_judgement"]))
+	var excluded := {}
+	for i in range(casts):
+		var target := _nearest_enemy_to(player.global_position, excluded, 520.0)
+		if target == null:
+			return
+		excluded[target] = true
+		var pos := target.global_position + Vector2(rng.randf_range(-18.0, 18.0), rng.randf_range(-18.0, 18.0))
+		_holy_strike_after_warning(pos)
+
+func _holy_strike_after_warning(pos: Vector2) -> void:
+	var mark := ColorRect.new()
+	mark.color = Color(1.0, 0.82, 0.26, 0.42)
+	mark.size = Vector2(68, 68)
+	mark.position = pos - mark.size * 0.5
+	effects.add_child(mark)
+	var warn := create_tween()
+	warn.tween_property(mark, "scale", Vector2(0.35, 0.35), 0.34)
+	warn.parallel().tween_property(mark, "modulate:a", 0.9, 0.34)
+	await warn.finished
+	if not is_instance_valid(mark):
+		return
+	mark.queue_free()
+	_spawn_pixel_beam(pos + Vector2(0, -180), pos + Vector2(0, 34), Color("#ffd464"), 18.0, 0.22)
+	for enemy in enemies.get_children():
+		if enemy.global_position.distance_to(pos) < 76.0:
+			enemy.take_damage(3 + int(stats["holy_judgement"]))
+			_spawn_hit_spark(enemy.global_position, "holy", 4, true)
+
+func _spawn_pixel_beam(from_pos: Vector2, to_pos: Vector2, color: Color, thickness: float, duration: float) -> void:
+	var beam := ColorRect.new()
+	var length := from_pos.distance_to(to_pos)
+	beam.color = color
+	beam.size = Vector2(length, thickness)
+	beam.position = from_pos
+	beam.rotation = from_pos.angle_to_point(to_pos)
+	effects.add_child(beam)
+	var tween := create_tween()
+	tween.tween_property(beam, "modulate:a", 0.0, duration)
+	tween.parallel().tween_property(beam, "scale:y", 0.15, duration)
+	tween.tween_callback(beam.queue_free)
+
+func _draw_magic_circle(origin: Vector2, radius: float) -> void:
+	var points := 12
+	var previous := origin + Vector2.RIGHT * radius
+	for i in range(1, points + 1):
+		var next := origin + Vector2.RIGHT.rotated(TAU * float(i) / float(points)) * radius
+		_spawn_pixel_beam(previous, next, Color("#a378ff"), 2.0, 0.18)
+		previous = next
+
+func _effect_color(effect_name: String, player_bullet: bool) -> Color:
+	if not player_bullet:
+		return Color("#ff4d6d")
+	if effect_name == "lightning":
+		return Color("#78ffe1")
+	if effect_name == "blood":
+		return Color("#ff4d6d")
+	if effect_name == "holy":
+		return Color("#ffd464")
+	if effect_name == "void":
+		return Color("#a378ff")
+	if effect_name == "ember":
+		return Color("#ff9b35")
+	return Color("#ffd464")
 
 func _spawn_room_item(source: String) -> void:
 	if source == "stairs":
@@ -855,20 +1308,31 @@ func _on_item_picked(item_id: String) -> void:
 func _next_floor() -> void:
 	floor_number += 1
 	room_number = 1
+	_pick_floor_theme()
 	_generate_dungeon()
+	if floor_node != null:
+		floor_node.queue_free()
+	floor_node = _make_floor()
+	add_child(floor_node)
+	move_child(floor_node, 0)
+	if walls_node != null:
+		walls_node.queue_free()
+	walls_node = _make_room_walls()
+	add_child(walls_node)
+	move_child(walls_node, 1)
 	player.health = mini(player.max_health, player.health + 4)
 	call_deferred("_load_room")
 
 func _item_name(item_id: String) -> String:
 	if item_id == "spark":
-		return "Spark Core"
+		return "火花核心"
 	if item_id == "triple":
-		return "Triple Tears"
+		return "三重淚滴"
 	if item_id == "needle":
-		return "Piercing Needle"
+		return "穿刺銀針"
 	if item_id == "heart":
-		return "Big Heart"
-	return "Crown Shard"
+		return "大型愛心"
+	return "王冠碎片"
 
 func _item_color(item_id: String) -> Color:
 	if item_id == "spark":
@@ -934,17 +1398,21 @@ func _show_upgrade_choices() -> void:
 	for child in choices_box.get_children():
 		child.queue_free()
 	var choices := [
-		{"label": "Ember Core", "desc": "Damage +1, fiery shots", "key": "damage"},
-		{"label": "Quick Boots", "desc": "Move speed +18", "key": "move_speed"},
-		{"label": "Trigger Charm", "desc": "Shoot faster", "key": "fire_cooldown"},
-		{"label": "Tiny Heart", "desc": "Max HP +3", "key": "max_health"},
-		{"label": "Falcon Rune", "desc": "Bullet speed +60", "key": "shot_speed"},
-		{"label": "Triple Sigil", "desc": "+1 shot, wider arc", "key": "multishot"},
-		{"label": "Glass Needle", "desc": "Pierce +1", "key": "pierce"},
-		{"label": "Moon Magnet", "desc": "Shots bend toward enemies", "key": "homing"},
-		{"label": "Giant Tear", "desc": "Bigger bullets", "key": "bullet_size"},
-		{"label": "Void Splinter", "desc": "Hits split into shards", "key": "split_shot"},
-		{"label": "Royal Focus", "desc": "Damage +1, tighter spread", "key": "focus"}
+		{"label": "餘燼核心", "desc": "傷害+1，子彈附帶火光", "key": "damage"},
+		{"label": "疾行靴", "desc": "移動速度+18", "key": "move_speed"},
+		{"label": "扳機護符", "desc": "射擊間隔縮短", "key": "fire_cooldown"},
+		{"label": "小小愛心", "desc": "生命上限+3", "key": "max_health"},
+		{"label": "隼之符文", "desc": "彈速+60", "key": "shot_speed"},
+		{"label": "三重印記", "desc": "子彈+1，散射角變寬", "key": "multishot"},
+		{"label": "玻璃銀針", "desc": "穿透+1", "key": "pierce"},
+		{"label": "月之磁石", "desc": "子彈會追向敵人", "key": "homing"},
+		{"label": "巨型淚滴", "desc": "子彈體積變大", "key": "bullet_size"},
+		{"label": "虛空裂片", "desc": "命中後分裂成碎彈", "key": "split_shot"},
+		{"label": "王室凝神", "desc": "傷害+1，散射角收窄", "key": "focus"},
+		{"label": "雷鏈彈", "desc": "命中後跳躍閃電", "key": "chain_lightning"},
+		{"label": "星界裂隙", "desc": "命中時撕開吸怪裂縫", "key": "astral_rift"},
+		{"label": "血月軌道", "desc": "紅月刃環繞切割敵人", "key": "blood_moon"},
+		{"label": "聖光審判", "desc": "定時落下金色光柱", "key": "holy_judgement"}
 	]
 	choices.shuffle()
 	var picked: Array = choices.slice(0, 3)
@@ -996,6 +1464,15 @@ func _choose_upgrade(key: String) -> void:
 	elif key == "focus":
 		stats["damage"] += 1
 		stats["spread"] = maxf(0.0, stats["spread"] - 4.0)
+	elif key == "chain_lightning":
+		stats["chain_lightning"] = int(stats["chain_lightning"]) + 1
+	elif key == "astral_rift":
+		stats["astral_rift"] = int(stats["astral_rift"]) + 1
+		stats["void_bullets"] = true
+	elif key == "blood_moon":
+		stats["blood_moon"] = int(stats["blood_moon"]) + 1
+	elif key == "holy_judgement":
+		stats["holy_judgement"] = int(stats["holy_judgement"]) + 1
 	_apply_stats()
 	current_upgrade_keys.clear()
 	level_panel.visible = false
@@ -1035,14 +1512,16 @@ func _make_hud() -> CanvasLayer:
 	hud_box.add_child(top_row)
 	var hearts := HBoxContainer.new()
 	hearts.name = "Hearts"
-	hearts.custom_minimum_size = Vector2(150, 28)
+	hearts.custom_minimum_size = Vector2(122, 24)
 	hearts.add_theme_constant_override("separation", 2)
-	hearts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hearts.clip_contents = true
+	hearts.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	top_row.add_child(hearts)
 	var room_label := Label.new()
 	room_label.name = "RoomInfo"
 	room_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	room_label.add_theme_font_size_override("font_size", 15)
+	room_label.clip_text = true
+	room_label.add_theme_font_size_override("font_size", 13)
 	room_label.add_theme_color_override("font_color", Color("#ffd464"))
 	room_label.add_theme_color_override("font_outline_color", Color("#10131f"))
 	room_label.add_theme_constant_override("outline_size", 3)
@@ -1051,11 +1530,13 @@ func _make_hud() -> CanvasLayer:
 	var level_label := Label.new()
 	level_label.name = "LevelInfo"
 	level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	level_label.add_theme_font_size_override("font_size", 15)
+	level_label.clip_text = true
+	level_label.custom_minimum_size = Vector2(54, 22)
+	level_label.add_theme_font_size_override("font_size", 13)
 	level_label.add_theme_color_override("font_color", Color("#78ffe1"))
 	level_label.add_theme_color_override("font_outline_color", Color("#10131f"))
 	level_label.add_theme_constant_override("outline_size", 3)
-	level_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	level_label.size_flags_horizontal = Control.SIZE_SHRINK_END
 	top_row.add_child(level_label)
 	var bottom_row := HBoxContainer.new()
 	bottom_row.name = "BottomRow"
@@ -1067,7 +1548,7 @@ func _make_hud() -> CanvasLayer:
 	xp_bar.max_value = 100
 	xp_bar.value = 0
 	xp_bar.show_percentage = false
-	xp_bar.custom_minimum_size = Vector2(170, 18)
+	xp_bar.custom_minimum_size = Vector2(118, 18)
 	xp_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	xp_bar.add_theme_stylebox_override("background", _make_card_style(Color("#242a3a"), Color("#10131f"), 2))
 	xp_bar.add_theme_stylebox_override("fill", _make_card_style(Color("#5fc7e8"), Color("#5fc7e8"), 0))
@@ -1078,11 +1559,13 @@ func _make_hud() -> CanvasLayer:
 	xp_label.add_theme_color_override("font_color", Color("#cfefff"))
 	xp_label.add_theme_color_override("font_outline_color", Color("#10131f"))
 	xp_label.add_theme_constant_override("outline_size", 2)
-	xp_label.custom_minimum_size = Vector2(74, 18)
+	xp_label.clip_text = true
+	xp_label.custom_minimum_size = Vector2(62, 18)
 	bottom_row.add_child(xp_label)
 	var state_label := Label.new()
 	state_label.name = "StateInfo"
 	state_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	state_label.clip_text = true
 	state_label.add_theme_font_size_override("font_size", 13)
 	state_label.add_theme_color_override("font_color", Color("#f7f0d8"))
 	state_label.add_theme_color_override("font_outline_color", Color("#10131f"))
@@ -1229,11 +1712,11 @@ func _update_hearts(hearts: HBoxContainer) -> void:
 	var max_units := int(ceil(float(player.max_health) / 2.0))
 	var full_units := int(player.health / 2)
 	var has_half: bool = player.health % 2 == 1
-	var shown_units := mini(max_units, 10)
+	var shown_units := mini(max_units, 6)
 	for i in range(shown_units):
 		var heart := TextureRect.new()
 		heart.texture = _make_heart_texture("full" if i < full_units else "half" if i == full_units and has_half else "empty")
-		heart.custom_minimum_size = Vector2(22, 22)
+		heart.custom_minimum_size = Vector2(18, 18)
 		heart.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
 		heart.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		hearts.add_child(heart)
@@ -1424,4 +1907,12 @@ func _make_upgrade_icon_texture(key: String) -> Texture2D:
 		return _load_png_texture("res://assets/sprites/icon_void.png")
 	if key == "focus":
 		return _load_png_texture("res://assets/sprites/icon_focus.png")
+	if key == "chain_lightning":
+		return _load_png_texture("res://assets/sprites/icon_trigger.png")
+	if key == "astral_rift":
+		return _load_png_texture("res://assets/sprites/icon_void.png")
+	if key == "blood_moon":
+		return _load_png_texture("res://assets/sprites/icon_heart.png")
+	if key == "holy_judgement":
+		return _load_png_texture("res://assets/sprites/icon_crown.png")
 	return _load_png_texture("res://assets/sprites/icon_crown.png")

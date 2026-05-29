@@ -98,6 +98,51 @@ def write_svg(path, title, color):
         f.write(content)
 
 
+FLOOR_ROWS = [
+    "dddddddddddddddddddddddddddddddd",
+    "dddddddddddddddddddddddddddddddd",
+    "dddddddddddddddddddddddddddddddd",
+    "ddddDddddddddddddddddddddDddddd",
+    "dddDDDddddddddddddddddddDDDdddd",
+    "ddddDddddddddddddddddddddDddddd",
+    "dddddddddddddddddddddddddddddddd",
+    "dddddddddddddddddddddddddddddddd",
+    "ddddddddddddDddddddddddddddddddd",
+    "dddddddddddDDDdddddddddddddddddd",
+    "ddddddddddddDddddddddddddddddddd",
+    "dddddddddddddddddddddddddddddddd",
+    "dddddddddddddddddddddddddddddddd",
+    "dddddddddddddddddddddddddddddddd",
+    "ddDddddddddddddddddddddddddddDdd",
+    "dDDDddddddddddddddddddddddddDDDd",
+    "ddDddddddddddddddddddddddddddDdd",
+    "dddddddddddddddddddddddddddddddd",
+    "ddddddddddddddddddddDddddddddddd",
+    "dddddddddddddddddddDDDdddddddddd",
+    "ddddddddddddddddddddDddddddddddd",
+    "dddddddddddddddddddddddddddddddd",
+    "dddddddddddddddddddddddddddddddd",
+    "ddddddddDddddddddddddddddddddddd",
+    "dddddddDDDdddddddddddddddddddddd",
+    "ddddddddDddddddddddddddddddddddd",
+    "dddddddddddddddddddddddddddddddd",
+    "dddddddddddddddddddddddddddddddd",
+    "dddddddddddddddddddddddddddddddd",
+    "dddddddddddddddddddddddddddddddd",
+    "dddddddddddddddddddddddddddddddd",
+    "dddddddddddddddddddddddddddddddd",
+]
+
+
+def floor_palette(base, highlight, accent):
+    return {
+        ".": T,
+        "d": rgba(base),
+        "D": rgba(highlight),
+        "x": rgba(accent),
+    }
+
+
 def main():
     s = lambda name: os.path.join(ROOT, "assets", "sprites", name)
     write_png(s("player.png"), [
@@ -146,28 +191,18 @@ def main():
         "................",
         "................",
     ], scale=4)
-    custom_floor = os.path.join(ROOT, "assets", "tiles", "medieval_stone_floor_tile.png")
+    floor_themes = {
+        "floor.png": floor_palette("#232837", "#30394f", "#10131f"),
+        "floor_spring.png": floor_palette("#24382f", "#456b45", "#f3a6c8"),
+        "floor_summer.png": floor_palette("#203c34", "#4e8f52", "#ffd464"),
+        "floor_autumn.png": floor_palette("#3a2b24", "#8b5a30", "#e8793e"),
+        "floor_winter.png": floor_palette("#263342", "#8fb8d8", "#f7f0d8"),
+        "floor_snow.png": floor_palette("#d7e8ef", "#ffffff", "#9ab7cf"),
+    }
+    for filename, palette in floor_themes.items():
+        write_png(s(filename), FLOOR_ROWS, palette=palette, scale=2)
     custom_door = os.path.join(ROOT, "assets", "tiles", "medieval_door_tile.png")
     custom_topdown_door = os.path.join(ROOT, "assets", "tiles", "medieval_door_topdown_tile.png")
-    if not os.path.exists(custom_floor):
-        write_png(s("floor.png"), [
-            "dddddddddddddddd",
-            "dDDDDdDDDDdDDDDd",
-            "dD..DdD..DdD..Dd",
-            "dD..DdD..DdD..Dd",
-            "dddddddddddddddd",
-            "dDDdDDDDdDDDDdDd",
-            "dD.dD..DdD..DdDd",
-            "dDDdD..DdD..dDDd",
-            "dddddddddddddddd",
-            "dDDDDdDDDDdDDDDd",
-            "dD..DdD..DdD..Dd",
-            "dD..DdD..DdD..Dd",
-            "dddddddddddddddd",
-            "dDddddDddddDdddD",
-            "ddDddddDddddDddd",
-            "dddddddddddddddd",
-        ], scale=2)
     if not os.path.exists(custom_door):
         write_png(s("door.png"), [
             "................",
